@@ -15,6 +15,7 @@ from app.db import reset_engine
 from app.dbcheck import alembic_config
 
 TEST_SECRET_KEY = "test-secret-key-0123456789abcdef"
+BASE_URL = "http://127.0.0.1:8000"
 _ENV_VARS = (
     "VILLAGE_HOST",
     "VILLAGE_PORT",
@@ -53,5 +54,14 @@ def migrated(env: Path) -> Path:
 def client(migrated: Path) -> Iterator[TestClient]:
     from app.main import create_app
 
-    with TestClient(create_app()) as test_client:
+    with TestClient(create_app(), base_url=BASE_URL) as test_client:
         yield test_client
+
+
+@pytest.fixture(autouse=True)
+def _reset_login_limiter() -> Iterator[None]:
+    from app.security import login_limiter
+
+    login_limiter.clear()
+    yield
+    login_limiter.clear()

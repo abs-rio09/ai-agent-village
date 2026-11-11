@@ -14,7 +14,7 @@ from sqlalchemy import text
 from app.config import Settings, get_settings
 from app.db import get_engine
 from app.dbcheck import alembic_config, check
-from tests.conftest import TEST_SECRET_KEY
+from tests.conftest import BASE_URL, TEST_SECRET_KEY
 
 
 def test_health_ok_wal_and_demo_mode(client: TestClient) -> None:
@@ -39,7 +39,7 @@ def test_health_reports_non_demo_without_leaking_key(
     get_settings.cache_clear()
     from app.main import create_app
 
-    with TestClient(create_app()) as test_client:
+    with TestClient(create_app(), base_url=BASE_URL) as test_client:
         response = test_client.get("/api/health")
     assert response.status_code == 200
     assert response.json()["demo_mode"] is False
@@ -49,7 +49,7 @@ def test_health_reports_non_demo_without_leaking_key(
 def test_health_degraded_when_database_not_migrated(env: Path) -> None:
     from app.main import create_app
 
-    with TestClient(create_app()) as test_client:
+    with TestClient(create_app(), base_url=BASE_URL) as test_client:
         response = test_client.get("/api/health")
     assert response.status_code == 503
     assert response.json()["db_ok"] is False

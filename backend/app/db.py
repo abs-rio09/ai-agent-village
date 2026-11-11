@@ -21,6 +21,11 @@ def utcnow() -> datetime:
     return datetime.now(UTC).replace(tzinfo=None)
 
 
+def as_utc(value: datetime | None) -> datetime | None:
+    """Attach UTC to a stored (naive UTC) timestamp so API responses are unambiguous."""
+    return value.replace(tzinfo=UTC) if value is not None else None
+
+
 def make_engine(db_file: Path) -> Engine:
     db_file.parent.mkdir(parents=True, exist_ok=True)
     engine = create_engine(f"sqlite:///{db_file}", connect_args={"check_same_thread": False})

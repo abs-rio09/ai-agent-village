@@ -43,7 +43,7 @@ PROGRESS.md             honest status log — update it every session
 
 ## Tests
 ```bash
-cd backend && ../.venv/bin/python -m pytest        # backend
+cd backend && ../.venv/bin/pytest                  # backend
 cd frontend && npm test                            # frontend (Vitest, run once)
 cd frontend && npm run build                       # type-check + production build
 bash -n village                                    # CLI syntax (shellcheck too, if installed)
