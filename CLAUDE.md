@@ -48,6 +48,7 @@ cd frontend && npm test                            # frontend (Vitest, run once)
 cd frontend && npm run build                       # type-check + production build
 bash -n village                                    # CLI syntax (shellcheck too, if installed)
 ```
+Frontend dev loop: `./village start`, then `cd frontend && npm run dev` (http://127.0.0.1:5173, proxies /api).
 
 ## ./village commands
 ```

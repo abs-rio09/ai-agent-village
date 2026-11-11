@@ -1,4 +1,4 @@
-"""FastAPI application: one process serves /api (and, from Part C, the built frontend)."""
+"""FastAPI application: one process serves /api and the built frontend (frontend/dist)."""
 
 from __future__ import annotations
 
@@ -6,9 +6,9 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from urllib.parse import urlsplit
 
-from fastapi import FastAPI, Request, Response
+from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 
 from app import __version__
 from app.api import api_router
@@ -16,6 +16,28 @@ from app.config import get_settings
 
 _ALLOWED_HOSTNAMES = {"127.0.0.1", "localhost", "[::1]"}
 _SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
+
+
+_SECURITY_HEADERS = {
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Referrer-Policy": "no-referrer",
+    "Content-Security-Policy": (
+        "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; "
+        "frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+    ),
+}
+
+_NOT_BUILT_HTML = """<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>AI Agent Village</title></head>
+<body style="font-family: system-ui, sans-serif; background: #0a1211; color: #dfe9e4; padding: 3rem;">
+<h1>AI Agent Village</h1>
+<p>The backend is running, but the frontend has not been built yet.</p>
+<p>Run <code>./village setup</code> in the project folder, then reload this page.</p>
+</body>
+</html>
+"""
 
 
 def _hostname(host_header: str) -> str:
@@ -55,7 +77,10 @@ def create_app() -> FastAPI:
             origin = request.headers.get("origin")
             if origin is not None and urlsplit(origin).netloc.lower() != host.lower():
                 return JSONResponse(status_code=403, content={"detail": "Cross-origin request rejected"})
-        return await call_next(request)
+        response = await call_next(request)
+        for name, value in _SECURITY_HEADERS.items():
+            response.headers.setdefault(name, value)
+        return response
 
     @app.exception_handler(RequestValidationError)
     async def _validation_error(_request: Request, exc: RequestValidationError) -> JSONResponse:
@@ -65,6 +90,26 @@ def create_app() -> FastAPI:
         return JSONResponse(status_code=422, content={"detail": errors})
 
     app.include_router(api_router)
+
+    @app.api_route("/{full_path:path}", methods=["GET", "HEAD"], include_in_schema=False)
+    def _frontend(full_path: str) -> Response:
+        """Serve the built frontend: real files from dist, index.html for every other path."""
+        if full_path == "api" or full_path.startswith("api/"):
+            raise HTTPException(status_code=404, detail="Not found")
+        dist = get_settings().dist_path.resolve()
+        index = dist / "index.html"
+        if not index.is_file():
+            return HTMLResponse(_NOT_BUILT_HTML, status_code=503)
+        if full_path:
+            candidate = (dist / full_path).resolve()
+            if candidate.is_relative_to(dist) and candidate.is_file():
+                if full_path.startswith("assets/"):  # content-hashed by Vite
+                    return FileResponse(candidate, headers={"Cache-Control": "public, max-age=31536000, immutable"})
+                return FileResponse(candidate, headers={"Cache-Control": "no-cache"})
+            if full_path.startswith("assets/"):
+                raise HTTPException(status_code=404, detail="Not found")
+        return FileResponse(index, headers={"Cache-Control": "no-cache"})  # SPA fallback
+
     return app
 
 

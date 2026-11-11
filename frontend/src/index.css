@@ -1,0 +1,162 @@
+@import "tailwindcss";
+
+/* Night-time smart village: deep paddy-field greens, lantern amber for action,
+   fresh green for "healthy". System fonts only — the app must work offline. */
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, "Segoe UI", "Noto Sans", "Noto Sans Bengali", sans-serif;
+  --font-mono: ui-monospace, "JetBrains Mono", "Cascadia Code", "DejaVu Sans Mono", monospace;
+
+  --color-night-950: #060b0a;
+  --color-night-900: #0a1211;
+  --color-night-850: #0e1816;
+  --color-night-800: #13201d;
+  --color-night-700: #1c2e2a;
+  --color-night-600: #2a433d;
+  --color-night-500: #3d5b54;
+
+  --color-mist-50: #f1f6f3;
+  --color-mist-100: #dfe9e4;
+  --color-mist-300: #aebfb7;
+  --color-mist-400: #8fa39a;
+  --color-mist-500: #71867d;
+
+  --color-paddy-300: #8ff0bf;
+  --color-paddy-400: #5ee0a0;
+  --color-paddy-500: #2fbf7f;
+
+  --color-lantern-200: #ffe2a8;
+  --color-lantern-300: #ffcf73;
+  --color-lantern-400: #f6b545;
+  --color-lantern-500: #e2971c;
+
+  --color-river-300: #93dcef;
+  --color-river-400: #5cc8e6;
+
+  --color-clay-300: #ffb3a3;
+  --color-clay-400: #f4826c;
+  --color-clay-500: #d95f47;
+
+  --animate-rise: rise 0.35s ease-out both;
+  --animate-beacon: beacon 2.4s ease-out infinite;
+
+  @keyframes rise {
+    from {
+      opacity: 0;
+      transform: translateY(6px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  @keyframes beacon {
+    0% {
+      box-shadow: 0 0 0 0 color-mix(in srgb, currentColor 55%, transparent);
+    }
+    70%,
+    100% {
+      box-shadow: 0 0 0 7px transparent;
+    }
+  }
+}
+
+@layer base {
+  html {
+    color-scheme: dark;
+  }
+
+  body {
+    min-height: 100vh;
+    background-color: var(--color-night-950);
+    /* lantern glow from the top-left, cool river light from the right, faint plot grid */
+    background-image:
+      radial-gradient(900px 520px at 8% -10%, rgb(246 181 69 / 0.1), transparent 60%),
+      radial-gradient(800px 600px at 105% 10%, rgb(92 200 230 / 0.07), transparent 60%),
+      linear-gradient(rgb(255 255 255 / 0.018) 1px, transparent 1px),
+      linear-gradient(90deg, rgb(255 255 255 / 0.018) 1px, transparent 1px);
+    background-size:
+      auto,
+      auto,
+      44px 44px,
+      44px 44px;
+    background-attachment: fixed;
+    color: var(--color-mist-100);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-lantern-400);
+    outline-offset: 2px;
+  }
+
+  ::selection {
+    background: rgb(246 181 69 / 0.35);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation: none !important;
+      transition: none !important;
+    }
+  }
+}
+
+@layer components {
+  .thin-scroll {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-night-600) transparent;
+  }
+
+  /* small mono caption used above headings and values */
+  .eyebrow {
+    font-family: var(--font-mono);
+    font-size: 0.6875rem;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--color-mist-500);
+  }
+
+  .panel {
+    border: 1px solid var(--color-night-700);
+    border-radius: 1rem;
+    background: linear-gradient(180deg, rgb(19 32 29 / 0.85), rgb(14 24 22 / 0.85));
+    box-shadow:
+      0 1px 0 rgb(255 255 255 / 0.03) inset,
+      0 18px 40px -24px rgb(0 0 0 / 0.7);
+  }
+
+  .input {
+    width: 100%;
+    border-radius: 0.625rem;
+    border: 1px solid var(--color-night-600);
+    background: var(--color-night-900);
+    padding: 0.625rem 0.875rem;
+    font-size: 0.9375rem;
+    color: var(--color-mist-50);
+    transition:
+      border-color 0.15s,
+      box-shadow 0.15s;
+  }
+
+  .input::placeholder {
+    color: var(--color-mist-500);
+  }
+
+  .input:hover {
+    border-color: var(--color-night-500);
+  }
+
+  .input:focus {
+    outline: none;
+    border-color: var(--color-lantern-400);
+    box-shadow: 0 0 0 3px rgb(246 181 69 / 0.18);
+  }
+
+  .input[aria-invalid="true"] {
+    border-color: var(--color-clay-400);
+  }
+}

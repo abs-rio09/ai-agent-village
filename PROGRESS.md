@@ -1,6 +1,7 @@
 # PROGRESS
 
-Milestone in progress: **M1 — Foundation** (Parts A and B done; Part C pending).
+Milestone **M1 — Foundation**: Parts A, B and C are built and committed. One acceptance item is
+still open: the live run on the default port 8000 (see "Broken & known issues").
 
 ## Done
 ### M1 Part A — scaffold, backend core, `./village` CLI
@@ -36,10 +37,37 @@ Milestone in progress: **M1 — Foundation** (Parts A and B done; Part C pending
   DB/.env/port: setup → 409 on repeat → logout → restart → login; grep confirmed that neither the
   API key nor the password appears in the log or the database files.
 
+### M1 Part C — React shell + wizard UI, served by FastAPI
+- `frontend/`: Vite 8 + React 19 + TypeScript 7 + Tailwind 4 + Lucide + React Router 8;
+  `package-lock.json` committed; dev server proxies `/api` to 127.0.0.1:8000; build → `frontend/dist`.
+- FastAPI serves `frontend/dist`: static files, SPA fallback for non-`/api` paths, JSON 404 for
+  unknown `/api` paths, and a "run ./village setup" page (503) when the build is missing.
+- Routing: setup not done → `/setup`; not logged in → `/login`; otherwise the app shell.
+- `/setup` wizard, 6 steps with Back/Next, client-side validation, password strength hint, server
+  errors mapped back to the right step. `/login` page.
+- App shell: dark "village control center" look, sidebar with the 22 pages of SPEC §13 in 8 groups;
+  21 unbuilt pages show "Coming in M<n>" and no data. Top bar: village name, AI mode badge
+  (Demo / Ollama: not tested / Anthropic: not tested), logout.
+- Overview shows only real backend data (`/api/village`, `/api/health`) plus a clock in the
+  village timezone. No statistics.
+- Typed API client (`src/api.ts`): `credentials: 'include'`, 401 → `/login`.
+- Tests: Vitest + RTL 28 passed; pytest 82 passed, 1 skipped (shellcheck). `npm run build` succeeds.
+- Verified in a real (headless) browser against a scratch DB/.env on port 8011: empty-form and
+  password-mismatch blocking, full wizard with an Anthropic key (fake), dashboard, a "Coming in M4"
+  page, logout, wrong-password error, login, and still logged in with data intact after
+  `./village restart`. Afterwards the key and password were in neither the log nor the DB files.
+- Final check: `setup` ×2, `doctor`, `start`, `status`, health, `/` → 200, `restart`, `stop`,
+  `status` all passed with `VILLAGE_DB_PATH=/tmp/village-m1.db` **on port 8010**
+  (`VILLAGE_PORT=8010`), not on 8000 — see below.
+
 ## In progress
-- M1 Part C — React shell + wizard UI served by FastAPI.
+- Nothing. M2 has not been started.
 
 ## Broken & known issues
+- **M1 is not fully accepted on port 8000.** The final check as written stops at `./village doctor`
+  (`FAIL port: 8000 on 127.0.0.1 is in use by another program`). Everything was verified on other
+  ports instead. To close this: stop the `api-gateway` container and re-run the final check, or
+  decide on a different default port.
 - **Port 8000 is occupied on this PC** by the Docker container `api-gateway` (0.0.0.0:8000), which
   belongs to another project. `./village start` on the default port fails until that container is
   stopped; `./village doctor` reports it as a FAIL. Workaround: `VILLAGE_PORT=<other>`.
@@ -51,10 +79,22 @@ Milestone in progress: **M1 — Foundation** (Parts A and B done; Part C pending
   in Ollama mode without a key still reports `demo_mode: true`.
 - Login lockout is in memory: it resets when the server restarts. Sessions are not cleaned up
   on a schedule (expired rows are deleted at the next login).
+- The owner has not yet clicked through the wizard personally; the browser verification above was
+  done by the assistant in a headless browser on a scratch database, not on `data/village.db`.
+- The "Coming in M<n>" numbers (M2 org structure, M3 agents + AI settings, M4 tasks/approvals/
+  communication, M5 map, M6 memory + documents, M7 commerce + integrations, M8 reports, settings,
+  backup, health) are an assumption — only "backup = M8" was given. They live in
+  `frontend/src/nav.ts`.
+- The small-screen (drawer) layout exists but was only checked at desktop width.
+- `./village setup` runs `npm ci` every time, as specified, so each run reinstalls
+  `node_modules` (a few seconds here).
 - shellcheck is not installed, so the CLI was only checked with `bash -n`
   (`sudo apt install shellcheck` to enable that test).
 - Starlette prints a deprecation warning that its TestClient will prefer `httpx2` over `httpx`;
   harmless today.
 
 ## Last session
-- Built M1 Parts A and B. Nothing from M2+ exists.
+- Built M1 Parts A, B and C in three commits. Nothing from M2+ exists (no org structure, agents,
+  tasks, approvals, map, documents, commerce or backup).
+- Not done: final check on port 8000 (blocked by the `api-gateway` container); owner's own
+  click-through of wizard / login / logout / restart persistence.

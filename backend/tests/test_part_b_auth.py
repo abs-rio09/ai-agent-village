@@ -39,15 +39,20 @@ def do_setup(client: TestClient, **overrides: Any) -> Any:
     return response
 
 
-def api_paths(app: Any) -> set[str]:
-    """All registered /api paths (newer FastAPI nests included routers, older ones flatten them)."""
+def api_routes(app: Any) -> set[tuple[str, str]]:
+    """All registered (METHOD, /api path) pairs (newer FastAPI nests included routers)."""
     try:
         from fastapi.routing import iter_route_contexts
 
         items: list[Any] = list(iter_route_contexts(app.routes))
     except ImportError:
         items = list(app.routes)
-    return {path for item in items if (path := getattr(item, "path", None) or "").startswith("/api/")}
+    found: set[tuple[str, str]] = set()
+    for item in items:
+        path = getattr(item, "path", None) or ""
+        if path.startswith("/api/"):
+            found.update((method, path) for method in (getattr(item, "methods", None) or ()) if method != "HEAD")
+    return found
 
 
 def db_dump(db_file: Path) -> str:
@@ -293,11 +298,13 @@ def test_every_api_route_is_guarded_unless_allowlisted(client: TestClient) -> No
 
     do_setup(client)
     client.cookies.clear()
-    paths = api_paths(client.app)
-    assert PUBLIC_PATHS <= paths
-    for path in sorted(paths - PUBLIC_PATHS):
-        assert client.get(path).status_code in (401, 405), path
-        assert client.post(path, json={}).status_code in (401, 405), path
+    routes = api_routes(client.app)
+    assert PUBLIC_PATHS <= {path for _method, path in routes}
+    protected = sorted(route for route in routes if route[1] not in PUBLIC_PATHS)
+    assert ("GET", "/api/village") in protected
+    for method, path in protected:
+        response = client.request(method, path, json={} if method != "GET" else None)
+        assert response.status_code == 401, (method, path)
 
 
 def test_cross_origin_writes_and_foreign_hosts_are_rejected(client: TestClient) -> None:
