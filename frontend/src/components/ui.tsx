@@ -22,23 +22,36 @@ export function VillageCrest({ size = 36 }: { size?: number }) {
 }
 
 interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
-  variant?: "primary" | "ghost";
+  variant?: "primary" | "ghost" | "danger";
+  size?: "md" | "sm";
   busy?: boolean;
   icon?: ReactNode;
 }
 
-export function Button({ variant = "primary", busy = false, icon, className, children, disabled, ...rest }: ButtonProps) {
+export function Button({
+  variant = "primary",
+  size = "md",
+  busy = false,
+  icon,
+  className,
+  children,
+  disabled,
+  ...rest
+}: ButtonProps) {
   return (
     <button
       type="button"
       {...rest}
       disabled={disabled || busy}
       className={cx(
-        "inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition",
+        "inline-flex items-center justify-center gap-2 font-semibold transition",
+        size === "md" ? "rounded-xl px-4 py-2.5 text-sm" : "rounded-lg px-2.5 py-1.5 text-xs",
         "disabled:cursor-not-allowed disabled:opacity-50",
         variant === "primary" &&
           "bg-lantern-400 text-night-950 shadow-[0_8px_24px_-10px_rgb(246_181_69/0.7)] hover:bg-lantern-300 active:translate-y-px",
         variant === "ghost" && "border border-night-600 text-mist-100 hover:border-night-500 hover:bg-night-800",
+        variant === "danger" &&
+          "border border-clay-500/60 bg-clay-500/15 text-clay-300 hover:bg-clay-500/25 active:translate-y-px",
         className,
       )}
     >

@@ -1,11 +1,13 @@
-import { Clock, Cpu, HeartPulse, Layers, RefreshCw, User as UserIcon } from "lucide-react";
+import { Building2, Clock, Cpu, HeartPulse, House, Layers, Network, RefreshCw, Store, User as UserIcon } from "lucide-react";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { Link } from "react-router";
 
-import { api, type Health, type Village } from "../api";
+import { api, errorMessage, type Health, type OverviewStats, type Village } from "../api";
 import { aiModeLabel, cx } from "../components/ui";
 
-// M1 overview: every value on this page comes from GET /api/village or GET /api/health
-// (plus the browser clock, shown in the village timezone). No statistics exist yet.
+// Every value on this page comes from the backend: GET /api/village, GET /api/health and
+// GET /api/stats/overview (plus the browser clock, shown in the village timezone).
+// Agents and tasks do not exist yet, so no numbers are shown for them.
 
 function formatIn(timezone: string, options: Intl.DateTimeFormatOptions, date: Date): string {
   try {
@@ -124,6 +126,54 @@ function HealthCard() {
   );
 }
 
+function OrgStats() {
+  const [stats, setStats] = useState<OverviewStats | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .statsOverview()
+      .then((value) => !cancelled && setStats(value))
+      .catch((cause: unknown) => !cancelled && setError(errorMessage(cause, "Could not load the organization counts.")));
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const tiles = [
+    { key: "upazilas", label: "Upazilas", to: "/upazilas", icon: <Building2 size={15} aria-hidden="true" />, value: stats?.upazilas },
+    { key: "unions", label: "Unions", to: "/unions", icon: <Network size={15} aria-hidden="true" />, value: stats?.unions },
+    { key: "wards", label: "Wards", to: "/wards", icon: <House size={15} aria-hidden="true" />, value: stats?.wards },
+    { key: "offices", label: "Offices", to: "/wards", icon: <Store size={15} aria-hidden="true" />, value: stats?.offices },
+  ];
+  return (
+    <section aria-label="Organization">
+      {error && (
+        <p role="alert" className="mb-3 text-sm text-clay-300">
+          {error}
+        </p>
+      )}
+      <div className="grid grid-cols-2 gap-4 xl:grid-cols-4">
+        {tiles.map((tile) => (
+          <Link key={tile.key} to={tile.to} className="panel block p-5 transition hover:border-night-500" aria-label={`${tile.label}: ${tile.value ?? "loading"}`}>
+            <div className="flex items-center gap-2 text-mist-400">
+              {tile.icon}
+              <h2 className="eyebrow">{tile.label}</h2>
+            </div>
+            <p data-testid={`stat-${tile.key}`} className="mt-3 font-mono text-3xl tabular-nums tracking-tight text-mist-50">
+              {tile.value ?? "—"}
+            </p>
+            {tile.key === "offices" && stats && (
+              <p className="mt-1 text-xs text-mist-400">{stats.ward_offices} ward offices + Central Administration</p>
+            )}
+          </Link>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 function aiModeDetail(village: Village): string {
   switch (village.ai_mode) {
     case "demo":
@@ -159,6 +209,8 @@ export default function Overview({ village }: { village: Village }) {
         </div>
       </section>
 
+      <OrgStats />
+
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <Card icon={<UserIcon size={15} aria-hidden="true" />} label="Chairman">
           <p className="text-lg font-medium text-mist-50">{village.chairman_name}</p>
@@ -174,7 +226,7 @@ export default function Overview({ village }: { village: Village }) {
         </Card>
         <Card icon={<Layers size={15} aria-hidden="true" />} label="Default structure">
           <p className="text-lg font-medium capitalize text-mist-50">{village.default_structure}</p>
-          <p className="mt-1 text-xs text-mist-400">Saved choice only — Upazilas, Unions and Wards arrive in M2</p>
+          <p className="mt-1 text-xs text-mist-400">Your choice from setup. Nothing is generated automatically — use Upazila Management.</p>
         </Card>
 
         <HealthCard />
@@ -182,10 +234,10 @@ export default function Overview({ village }: { village: Village }) {
         <section className="panel p-5 md:col-span-2" aria-label="What exists today">
           <h2 className="eyebrow">What exists today</h2>
           <p className="mt-3 text-sm leading-relaxed text-mist-300">
-            This is milestone 1: the foundation. The village has a secure login, a database and this control
-            center. There are no Upazilas, agents or tasks yet, so there are no statistics to show — the pages
-            in the sidebar marked <span className="font-mono text-xs text-mist-100">M2</span>–
-            <span className="font-mono text-xs text-mist-100">M8</span> are built in later milestones.
+            Milestones 1 and 2: a secure login, the database, this control center and the organization — Upazilas,
+            Unions, Wards and Offices, counted above straight from the database. There are no agents or tasks yet, so
+            no numbers are shown for them: agents arrive in <span className="font-mono text-xs text-mist-100">M3</span>,
+            tasks and approvals in <span className="font-mono text-xs text-mist-100">M4</span>.
           </p>
         </section>
       </div>

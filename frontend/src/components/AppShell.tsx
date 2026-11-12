@@ -3,7 +3,7 @@ import { useState } from "react";
 import { NavLink, Outlet, useLocation } from "react-router";
 
 import type { User, Village } from "../api";
-import { NAV_GROUPS, findPage } from "../nav";
+import { NAV_GROUPS, findPage, isBuilt } from "../nav";
 import { useSession } from "../session";
 import { AiModeBadge, VillageCrest, cx } from "./ui";
 
@@ -33,7 +33,7 @@ function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
                   >
                     <Icon size={15} aria-hidden="true" className="shrink-0 opacity-80" />
                     <span className="min-w-0 flex-1 leading-snug">{page.label}</span>
-                    {page.milestone > 1 && (
+                    {!isBuilt(page) && (
                       <span
                         className="rounded border border-night-600 px-1 font-mono text-[10px] text-mist-500"
                         title={`Coming in M${page.milestone}`}

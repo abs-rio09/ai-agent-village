@@ -53,6 +53,122 @@ export interface SetupResult {
   anthropic_api_key: "saved, not tested" | "not provided";
 }
 
+// ---- organization (M2) ----
+
+export interface Office {
+  id: number;
+  kind: "ward" | "central";
+  ward_id: number | null;
+  name: string;
+  description: string;
+}
+
+export interface UpazilaCounts {
+  unions: number;
+  wards: number;
+  /** Ward offices only — the Central Administration office is listed separately. */
+  offices: number;
+}
+
+export interface UnionCounts {
+  wards: number;
+  offices: number;
+}
+
+export interface TreeWard {
+  id: number;
+  number: number;
+  name: string;
+  responsibility: string;
+  office: Office | null;
+}
+
+export interface TreeUnion {
+  id: number;
+  name: string;
+  description: string;
+  counts: UnionCounts;
+  wards: TreeWard[];
+}
+
+export interface TreeUpazila {
+  id: number;
+  name: string;
+  description: string;
+  icon: string;
+  template_key: string | null;
+  counts: UpazilaCounts;
+  unions: TreeUnion[];
+}
+
+export interface OrgTree {
+  village: { id: number; name: string };
+  central_office: Office | null;
+  counts: UpazilaCounts;
+  upazila_count: number;
+  upazilas: TreeUpazila[];
+}
+
+export interface UnionTemplate {
+  id: number;
+  name: string;
+  sort_order: number;
+}
+
+export interface WardTemplate {
+  id: number;
+  number: number;
+  name: string;
+  responsibility: string;
+}
+
+export interface Template {
+  key: string;
+  name: string;
+  description: string;
+  icon: string;
+  sort_order: number;
+  unions: UnionTemplate[];
+  wards: WardTemplate[];
+}
+
+export interface GenerateResult {
+  unions_created: number;
+  wards_created: number;
+  offices_created: number;
+  /** Template Unions that already exist in the Upazila and are left untouched. */
+  skipped: number;
+}
+
+export interface StandardUpazilasResult {
+  created: Array<{ id: number; name: string }>;
+  skipped: string[];
+}
+
+export interface OverviewStats {
+  upazilas: number;
+  unions: number;
+  wards: number;
+  /** Every office, including Central Administration. */
+  offices: number;
+  ward_offices: number;
+}
+
+export interface UpazilaInput {
+  name: string;
+  description: string;
+  icon: string;
+  template_key: string | null;
+}
+
+export interface DeleteResult {
+  deleted: boolean;
+  upazilas: number;
+  unions: number;
+  wards: number;
+  offices: number;
+}
+
 export class ApiError extends Error {
   readonly status: number;
   /** Server-side validation messages keyed by field name (e.g. "password"). */
@@ -106,7 +222,7 @@ interface RequestOptions {
   skipUnauthorizedHandler?: boolean;
 }
 
-async function request<T>(method: "GET" | "POST", path: string, body?: unknown, options: RequestOptions = {}): Promise<T> {
+async function request<T>(method: "GET" | "POST" | "PATCH" | "DELETE", path: string, body?: unknown, options: RequestOptions = {}): Promise<T> {
   let response: Response;
   try {
     response = await fetch(path, {
@@ -144,4 +260,43 @@ export const api = {
   logout: () => request<{ ok: boolean }>("POST", "/api/auth/logout"),
   me: () => request<User>("GET", "/api/auth/me"),
   village: () => request<Village>("GET", "/api/village"),
+
+  // organization
+  orgTree: () => request<OrgTree>("GET", "/api/org/tree"),
+  statsOverview: () => request<OverviewStats>("GET", "/api/stats/overview"),
+  createUpazila: (input: UpazilaInput) => request<unknown>("POST", "/api/upazilas", input),
+  updateUpazila: (id: number, patch: Partial<UpazilaInput>) => request<unknown>("PATCH", `/api/upazilas/${id}`, patch),
+  deleteUpazila: (id: number, confirmName: string) =>
+    request<DeleteResult>("DELETE", `/api/upazilas/${id}`, { confirm_name: confirmName }),
+  createStandardUpazilas: () => request<StandardUpazilasResult>("POST", "/api/upazilas/standard"),
+  previewStandardStructure: (id: number) =>
+    request<GenerateResult>("GET", `/api/upazilas/${id}/generate-standard/preview`),
+  generateStandardStructure: (id: number) => request<GenerateResult>("POST", `/api/upazilas/${id}/generate-standard`),
+  createUnion: (upazilaId: number, input: { name: string; description: string }) =>
+    request<unknown>("POST", `/api/upazilas/${upazilaId}/unions`, input),
+  updateUnion: (id: number, patch: { name?: string; description?: string }) =>
+    request<unknown>("PATCH", `/api/unions/${id}`, patch),
+  deleteUnion: (id: number, confirmName: string) =>
+    request<DeleteResult>("DELETE", `/api/unions/${id}`, { confirm_name: confirmName }),
+  createWard: (unionId: number) => request<TreeWard>("POST", `/api/unions/${unionId}/wards`, {}),
+  updateWard: (id: number, patch: { name?: string; responsibility?: string }) =>
+    request<unknown>("PATCH", `/api/wards/${id}`, patch),
+  deleteWard: (id: number, confirmName: string) =>
+    request<DeleteResult>("DELETE", `/api/wards/${id}`, { confirm_name: confirmName }),
+  updateOffice: (id: number, patch: { name?: string; description?: string }) =>
+    request<Office>("PATCH", `/api/offices/${id}`, patch),
+
+  // templates (edits affect future generation only)
+  templates: () => request<Template[]>("GET", "/api/templates"),
+  updateTemplate: (key: string, patch: { name?: string; description?: string }) =>
+    request<Template>("PATCH", `/api/templates/${encodeURIComponent(key)}`, patch),
+  updateUnionTemplate: (id: number, name: string) =>
+    request<UnionTemplate>("PATCH", `/api/templates/unions/${id}`, { name }),
+  updateWardTemplate: (id: number, patch: { name?: string; responsibility?: string }) =>
+    request<WardTemplate>("PATCH", `/api/templates/wards/${id}`, patch),
 };
+
+/** A message fit for the user from anything a failed call can throw. */
+export function errorMessage(cause: unknown, fallback = "Something went wrong."): string {
+  return cause instanceof Error && cause.message ? cause.message : fallback;
+}

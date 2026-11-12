@@ -1,7 +1,7 @@
 // The 22 dashboard pages from docs/SPEC.md §13, grouped for the sidebar.
 //
-// `milestone` is the milestone in which a page gets built. Only M1 pages exist today;
-// every other page renders an honest "Coming in M<n>" placeholder with no data.
+// `milestone` is the milestone in which a page gets built. Pages up to BUILT_MILESTONE exist
+// today; every other page renders an honest "Coming in M<n>" placeholder with no data.
 // NOTE: the M2-M8 assignment below is provisional — adjust it here if the build plan differs.
 
 import {
@@ -111,6 +111,13 @@ export const NAV_GROUPS: NavGroup[] = [
 ];
 
 export const ALL_PAGES: PageDef[] = NAV_GROUPS.flatMap((group) => group.pages);
+
+/** The last milestone whose pages are really built. */
+export const BUILT_MILESTONE = 2;
+
+export function isBuilt(page: PageDef): boolean {
+  return page.milestone <= BUILT_MILESTONE;
+}
 
 export function findPage(pathname: string): PageDef | undefined {
   return ALL_PAGES.find((page) => page.path === pathname);

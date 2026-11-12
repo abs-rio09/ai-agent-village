@@ -2,11 +2,14 @@ import { Link, Navigate, Route, Routes } from "react-router";
 
 import AppShell from "./components/AppShell";
 import { Button, FullScreenMessage } from "./components/ui";
-import { ALL_PAGES } from "./nav";
+import { ALL_PAGES, isBuilt } from "./nav";
 import ComingSoon from "./pages/ComingSoon";
 import Login from "./pages/Login";
 import Overview from "./pages/Overview";
 import SetupWizard from "./pages/SetupWizard";
+import Unions from "./pages/Unions";
+import Upazilas from "./pages/Upazilas";
+import Wards from "./pages/Wards";
 import { useSession } from "./session";
 
 function NotFound() {
@@ -54,7 +57,10 @@ export default function App() {
       />
       <Route element={authed ? <AppShell user={authed.user} village={authed.village} /> : <Navigate to={gate} replace />}>
         <Route index element={authed ? <Overview village={authed.village} /> : null} />
-        {ALL_PAGES.filter((page) => page.milestone > 1).map((page) => (
+        <Route path="/upazilas" element={<Upazilas />} />
+        <Route path="/unions" element={<Unions />} />
+        <Route path="/wards" element={<Wards />} />
+        {ALL_PAGES.filter((page) => !isBuilt(page)).map((page) => (
           <Route key={page.id} path={page.path} element={<ComingSoon page={page} />} />
         ))}
         <Route path="*" element={<NotFound />} />

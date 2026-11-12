@@ -3,8 +3,10 @@
 Milestone **M1 — Foundation**: built, committed and **accepted by the owner**. The owner verified
 it himself on the default port 8000 (wizard, dashboard, restart persistence, logout/login).
 
-Milestone **M2 — Organization**: Part A (backend) is built and committed. Part B (frontend) is
-not built yet — the three Administration pages still say "Coming in M2".
+Milestone **M2 — Organization**: Parts A (backend) and B (frontend) are built and committed and
+passed the final check on a temp database and port 8012. **Not yet accepted by the owner**: the
+live village on port 8000 still runs the M1 code until `./village stop && ./village setup &&
+./village start` is run (see "How to verify M2 on the live village").
 
 ## Done
 ### M1 Part A — scaffold, backend core, `./village` CLI
@@ -109,11 +111,83 @@ not built yet — the three Administration pages still say "Coming in M2".
   1..9, idempotent, one transaction — a forced failure midway leaves nothing), edited templates used
   by the next generation only, stats vs DB, tree counts, no query-per-node, 401 on every new route,
   upgrade 0002→0003 keeps data, models match migrations, parallel requests do not duplicate.
-- Not yet done for Part A: no run against a real server process or a copy of the real database
-  (that is the M2 final check, after Part B).
+
+### M2 Part B — organization frontend
+- The three "Coming in M2" pages are real now (`frontend/src/pages/Upazilas.tsx`, `Unions.tsx`,
+  `Wards.tsx`, `TemplatesPanel.tsx`; shared pieces in `components/org.tsx`, `Dialog.tsx`,
+  `OrgTreeView.tsx`). All data comes from `/api/org/tree`, `/api/templates` and the CRUD endpoints.
+- **Upazila Management**: cards (name, icon, template, union/ward/office counts), create/edit/delete,
+  "Create the N standard Upazilas" (shown only while none exist; N = number of templates, not a
+  hardcoded 6), and "Generate Standard Structure" on every Upazila that has a template. Generate
+  opens a dialog with the preview counts → Confirm → the counts the server really created.
+  Three tabs: Upazilas, Tree view, Templates.
+- **Union Management**: pick an Upazila → its Unions with ward/office counts; create/edit/delete.
+- **Ward & Office Management**: pick an Upazila and Union → grid of wards (number, name,
+  responsibility, office name); inline edit of ward name, responsibility and office name;
+  "Add ward" (next number, opens in edit mode); delete; plus a panel to rename the Central
+  Administration office.
+- **Templates** tab: edit a template's name, its Union names and its ward names/responsibilities.
+  Only changed fields are sent. A note says the change applies to future generation only.
+- Breadcrumbs (Village › Upazila › Union › Ward) on all three pages, and a collapsible tree view
+  (nested lists, buttons with `aria-expanded`, Expand all / Collapse all) whose nodes link to the
+  page that manages them. It lives in the "Tree view" tab of Upazila Management until the map (M5).
+- Every delete uses a dialog where the exact name must be typed; the dialog says what goes with it
+  ("5 Unions, 45 Wards and 45 Offices"). Server errors (409 duplicate name, etc.) are shown in the
+  dialog or page.
+- Overview: four real counts from `/api/stats/overview` (Upazilas, Unions, Wards, Offices). No
+  numbers at all for agents or tasks; the text says they arrive in M3/M4.
+- Sidebar: the three Administration pages no longer carry an "M2" badge (`BUILT_MILESTONE = 2` in
+  `nav.ts`).
+- Bug found and fixed during the browser check: dialogs were rendered inside the animated page
+  wrapper, whose CSS transform confined the "fixed" backdrop to the page area and left the panel
+  see-through. Dialogs are now rendered in a portal on `<body>` with an opaque panel (regression
+  test added).
+- Tests: Vitest + RTL 51 passed (20 new in `src/test/org.test.tsx`, 3 new in `app.test.tsx`):
+  create-Upazila validation, 409 shown, standard-Upazilas button, generate preview → result,
+  delete blocked until the typed name matches, tree expand/collapse, breadcrumbs, union and ward
+  CRUD, inline edit sends only what changed, template save, overview counts. pytest 121 passed,
+  1 skipped (shellcheck). `tsc --noEmit` and `vite build` succeed.
+
+### M2 final check (run by the assistant, 2026-11-12)
+- Never touched `data/village.db`, `data/.env`, `frontend/dist` or port 8000 (the owner's live
+  village kept running the whole time; its PID and the DB file's modification time are unchanged).
+- Upgrade on real data: a read-only copy of `data/village.db` was upgraded 0002 → 0003. The
+  `village`, `admin_user` and `session` rows are byte-identical before and after (same content
+  hash); 6 templates, 30 union templates, 54 ward templates and 1 central office were added;
+  `integrity_check` and `foreign_key_check` are ok.
+- Real server on `VILLAGE_DB_PATH=/tmp/village-m2.db VILLAGE_PORT=8012` with a scratch `.env` and a
+  scratch frontend build. With curl: every new route 401 without a session; setup creates no
+  structure; `/upazilas/standard` creates 6 then 0; generate on Study previews and creates
+  5/45/45, then 0 (skipped 5); wards 1..9 with the SPEC names; duplicate name 409; delete without
+  or with a wrong name 400, with the exact name 200 and cascading; cross-origin write 403.
+- Real (headless) browser on that server: login → empty state → "Create the 6 standard
+  Upazilas" → generate Study (preview 5/45/45 → result 5/45/45 → second run "Nothing to create")
+  → tree expand → breadcrumbs → create/rename/delete an Upazila, Unions and Wards → inline ward
+  and office edit → central office rename → template edit used by the next generation (and Study,
+  generated earlier, unchanged) → cascade delete of Study → Overview counts equal to the API.
+  Data survived a server restart. No tracebacks in the server log.
+- Deviations from the brief's wording, on purpose:
+  - The temp server was started with `python -m app.main`, not `./village start`: the CLI has one
+    PID file (`run/village.pid`) and it belongs to the live village.
+  - `npm run build` itself was not run, because it would have replaced `frontend/dist` under the
+    running live server. Its two steps were run instead (`tsc --noEmit`, then `vite build` into
+    a scratch folder). `./village setup` does the real build.
+
+## How to verify M2 on the live village
+`./village stop && ./village setup && ./village start`, log in, then:
+1. Village Overview: Upazilas 0, Unions 0, Wards 0, Offices 1 (Central Administration).
+2. Upazila Management → "Create the 6 standard Upazilas" → six cards.
+3. Study Upazila card → "Generate Standard Structure" → preview 5 / 45 / 45 → Confirm → Created
+   5 / 45 / 45 → Done. Click it again: "Nothing to create".
+4. Tab "Tree view" → expand Study Upazila → expand a Union → 9 wards, Class Routine … Daily
+   Academic Reporting.
+5. Union Management (pick Study Upazila): New Union, edit it, delete it (type its name).
+6. Ward & Office Management (pick a Union): edit a ward inline, "Add ward", delete a ward.
+7. Tab "Templates" → Business Upazila → fill in ward names → Save → generate Business.
+8. Overview again: the four counts match.
 
 ## In progress
-- M2 Part B (frontend): not started.
+- Nothing. M3 has not been started.
 
 ## Broken & known issues
 - `VILLAGE_SECRET_KEY` is required and generated, but nothing uses it yet (session tokens are
@@ -124,6 +198,18 @@ not built yet — the three Administration pages still say "Coming in M2".
   in Ollama mode without a key still reports `demo_mode: true`.
 - Login lockout is in memory: it resets when the server restarts. Sessions are not cleaned up
   on a schedule (expired rows are deleted at the next login).
+- M2 has not been clicked through by the owner on the live village yet (see above).
+- Study wards show the same text twice (name and responsibility), because the SPEC gives one
+  label per ward and both fields were seeded with it. Edit either in the Templates tab.
+- Templates: names can be edited, but Unions/wards cannot be added to or removed from a template
+  yet (the brief asked for editing only). Changing how many Unions or wards a template has needs
+  a new migration or a future feature.
+- Wards cannot be renumbered or reordered; deleting a ward leaves a gap in the numbers. Upazilas
+  and Unions have a `sort_order` in the API but no reorder control in the UI.
+- Deleting an Upazila/Union/Ward is not blocked by agents because agents do not exist yet;
+  `TODO(M3)` comments in `backend/app/api/org.py` mark where that check must go.
+- The org pages load the whole tree (`/api/org/tree`) and reload it after every change. Fine for
+  the standard structure (6 Upazilas → 270 wards was measured at 5 queries); not paginated.
 - Org names are compared exactly: "Garden" and "garden" count as two different names.
 - A session model/migration mismatch from M1 was fixed in the model only (`session.user_id` now
   declares the index that migration 0002 already created); no schema change.
@@ -131,7 +217,8 @@ not built yet — the three Administration pages still say "Coming in M2".
   communication, M5 map, M6 memory + documents, M7 commerce + integrations, M8 reports, settings,
   backup, health) are an assumption — only "backup = M8" was given. They live in
   `frontend/src/nav.ts`.
-- The small-screen (drawer) layout exists but was only checked at desktop width.
+- The small-screen layout was only spot-checked: the Ward page at 420 px wide has no horizontal
+  overflow. The other pages and the drawer were checked at desktop width only.
 - `./village setup` runs `npm ci` every time, as specified, so each run reinstalls
   `node_modules` (a few seconds here).
 - shellcheck is not installed, so the CLI was only checked with `bash -n`
@@ -141,6 +228,8 @@ not built yet — the three Administration pages still say "Coming in M2".
 
 ## Last session
 - Recorded M1 as accepted by the owner on port 8000.
-- Built and committed M2 Part A (backend). Nothing from M3+ exists (no agents, tasks, approvals,
-  map, documents, commerce or backup).
-- Next: M2 Part B (frontend), then the M2 final check on a temp DB and a copy of the real DB.
+- Built M2 in two commits: Part A (backend) and Part B (frontend), then ran the final check on a
+  temp database, a copy of the real database and a real browser (details above).
+- Nothing from M3+ exists (no agents, tasks, approvals, map, documents, commerce or backup).
+- Waiting for: the owner's click-through of M2 on the live village, and the ward names for the
+  Business/Career/Research/Project/Personal templates.

@@ -1,6 +1,6 @@
 import { vi } from "vitest";
 
-import type { Health, User, Village } from "../api";
+import type { Health, OrgTree, OverviewStats, Template, TreeUnion, TreeUpazila, User, Village } from "../api";
 
 interface MockReply {
   status?: number;
@@ -59,3 +59,107 @@ export const HEALTH: Health = {
   demo_mode: true,
   setup_completed: true,
 };
+
+export const STATS: OverviewStats = { upazilas: 2, unions: 5, wards: 45, offices: 46, ward_offices: 45 };
+
+export const STUDY_UNIONS = [
+  "Academic Management",
+  "Course Learning",
+  "Exam Preparation",
+  "Research Paper Learning",
+  "Academic Documentation",
+];
+
+export const STUDY_WARDS = [
+  "Class Routine",
+  "Assignment & Deadline",
+  "Exam Preparation",
+  "Learning Materials",
+  "Note Making",
+  "Course Tutor",
+  "Academic Progress",
+  "Study Planning",
+  "Daily Academic Reporting",
+];
+
+export const TEMPLATES: Template[] = [
+  {
+    key: "study",
+    name: "Study Upazila",
+    description: "",
+    icon: "graduation-cap",
+    sort_order: 1,
+    unions: STUDY_UNIONS.map((name, index) => ({ id: index + 1, name, sort_order: index + 1 })),
+    wards: STUDY_WARDS.map((name, index) => ({ id: index + 1, number: index + 1, name, responsibility: name })),
+  },
+  {
+    key: "business",
+    name: "Business Upazila",
+    description: "",
+    icon: "store",
+    sort_order: 2,
+    unions: [{ id: 6, name: "Business Strategy", sort_order: 1 }],
+    wards: [{ id: 10, number: 1, name: "Ward 1", responsibility: "" }],
+  },
+];
+
+/** Union 11, 12, … with wards 111…119, 121…129, each ward with its office. */
+function studyUnion(index: number, name: string): TreeUnion {
+  const id = 11 + index;
+  return {
+    id,
+    name,
+    description: "",
+    counts: { wards: STUDY_WARDS.length, offices: STUDY_WARDS.length },
+    wards: STUDY_WARDS.map((wardName, wardIndex) => {
+      const wardId = id * 10 + wardIndex + 1;
+      return {
+        id: wardId,
+        number: wardIndex + 1,
+        name: wardName,
+        responsibility: wardName,
+        office: { id: wardId + 1000, kind: "ward", ward_id: wardId, name: `${wardName} Office`, description: "" },
+      };
+    }),
+  };
+}
+
+export const STUDY_EMPTY: TreeUpazila = {
+  id: 1,
+  name: "Study Upazila",
+  description: "",
+  icon: "graduation-cap",
+  template_key: "study",
+  counts: { unions: 0, wards: 0, offices: 0 },
+  unions: [],
+};
+
+export const STUDY_FULL: TreeUpazila = {
+  ...STUDY_EMPTY,
+  counts: { unions: 5, wards: 45, offices: 45 },
+  unions: STUDY_UNIONS.map((name, index) => studyUnion(index, name)),
+};
+
+export const GARDEN: TreeUpazila = {
+  id: 2,
+  name: "Garden",
+  description: "Plants and trees",
+  icon: "",
+  template_key: null,
+  counts: { unions: 0, wards: 0, offices: 0 },
+  unions: [],
+};
+
+export function makeTree(upazilas: TreeUpazila[]): OrgTree {
+  return {
+    village: { id: 1, name: "Shantipur" },
+    central_office: { id: 1, kind: "central", ward_id: null, name: "Central Administration", description: "" },
+    counts: {
+      unions: upazilas.reduce((sum, upazila) => sum + upazila.counts.unions, 0),
+      wards: upazilas.reduce((sum, upazila) => sum + upazila.counts.wards, 0),
+      offices: upazilas.reduce((sum, upazila) => sum + upazila.counts.offices, 0),
+    },
+    upazila_count: upazilas.length,
+    upazilas,
+  };
+}
