@@ -4,9 +4,13 @@ Milestone **M1 — Foundation**: built, committed and **accepted by the owner**.
 it himself on the default port 8000 (wizard, dashboard, restart persistence, logout/login).
 
 Milestone **M2 — Organization**: Parts A (backend) and B (frontend) are built and committed and
-passed the final check on a temp database and port 8012. **Not yet accepted by the owner**: the
-live village on port 8000 still runs the M1 code until `./village stop && ./village setup &&
-./village start` is run (see "How to verify M2 on the live village").
+passed the final check on a temp database and port 8012. **Not yet accepted by the owner.** The
+live village on port 8000 was rebuilt and restarted by the owner on 2026-11-12 (seen only from the
+new process and the `frontend/dist` timestamp; the assistant did not inspect it). The owner's
+confirmation of M2 has not been recorded (see "How to verify M2 on the live village").
+
+**DEV-DOCS-01 — README, screenshots, license, CI**: done and committed. No application code,
+migration or test was changed. The CI workflow has **not run on GitHub yet** (nothing was pushed).
 
 ## Done
 ### M1 Part A — scaffold, backend core, `./village` CLI
@@ -173,6 +177,42 @@ live village on port 8000 still runs the M1 code until `./village stop && ./vill
     running live server. Its two steps were run instead (`tsc --noEmit`, then `vite build` into
     a scratch folder). `./village setup` does the real build.
 
+### DEV-DOCS-01 — README, screenshots, license, CI (2026-11-12, no app changes)
+- `README.md` (GitHub-flavoured, 246 lines): tagline, badges (no CI badge), hero screenshot, status
+  table M1–M9, working features (M1 + M2 only), screenshot grid, Mermaid architecture diagram,
+  tech stack, quick start, `./village` command table, security, testing, structure, roadmap,
+  how it was built, author, license. Every image and link target exists; the Mermaid block was
+  parsed and rendered with Mermaid 11.4.1 in a headless browser (GitHub's own renderer was not
+  tested).
+- `LICENSE`: MIT, copyright 2026 Abu Bakkar Siddik.
+- `docs/screenshots/` — five real 1440×900 screenshots (175–260 KB each): `overview.png`,
+  `setup-wizard.png`, `upazila-management.png`, `generate-structure.png`, `tree-view.png`. Taken
+  in a headless browser against a server on port 8013 with `VILLAGE_DB_PATH=/tmp/village-shots.db`,
+  a scratch `.env` and a scratch frontend build. The village was created through the real wizard
+  ("Demo Village", "Demo Chairman", user "demo"), then the standard Upazilas and the Study
+  structure were generated through the UI. The temp database was deleted afterwards.
+- `.github/workflows/ci.yml` — on push and pull request, `ubuntu-latest`, no secrets:
+  backend (Python 3.12: `pip install -r backend/requirements.txt`, `pytest`), frontend (Node 22:
+  `npm ci`, `npm test`, `npm run build`) and a build-only job on Node 20.
+- Local dry run of exactly those commands in a clean export of the commit, with interpreters
+  downloaded into a scratch folder (nothing installed system-wide):
+  - Python 3.12.16: pytest **121 passed, 1 skipped** without shellcheck; **122 passed** with
+    shellcheck 0.11.0 on the PATH (GitHub's runner has shellcheck, so the test will run there).
+  - Node 22.23.5: `npm ci`, Vitest **51 passed**, `npm run build` ok.
+  - Node 20.20.2: `npm ci` (engine warnings) and `npm run build` ok; **`npm test` fails**
+    (see "Broken & known issues").
+- `.gitignore`: added `.env`, `.env.*`, `data/.env*` (the temp files written while a key is being
+  saved were not covered), `*.log`, `*.pid`, `coverage/`, `.coverage`, `.playwright-mcp/`,
+  `.DS_Store`. `git ls-files | grep -E '\.env|\.db|\.log|\.pid'` prints nothing.
+- Secret scan of tracked files: no real keys, no email addresses, no `/home/...` paths, no phone
+  numbers. Hits that are intentional: fake `sk-ant-...TESTKEY...` strings and test passwords in the
+  test files; the PC's CPU model in `CLAUDE.md` and `docs/SPEC.md`. Commits are authored with a
+  GitHub no-reply address.
+- Milestone plan used in the README: M1–M8 as already recorded here, plus **M9 = background
+  automation (scheduler, persistent queue, restart recovery) and release hardening**. M9 is the
+  assistant's assumption — the brief asked for M1–M9 but nothing in the repo defined M9. It is
+  the part of the SPEC (§9) that M3–M8 did not cover.
+
 ## How to verify M2 on the live village
 `./village stop && ./village setup && ./village start`, log in, then:
 1. Village Overview: Upazilas 0, Unions 0, Wards 0, Offices 1 (Central Administration).
@@ -198,7 +238,17 @@ live village on port 8000 still runs the M1 code until `./village stop && ./vill
   in Ollama mode without a key still reports `demo_mode: true`.
 - Login lockout is in memory: it resets when the server restarts. Sessions are not cleaned up
   on a schedule (expired rows are deleted at the next login).
-- M2 has not been clicked through by the owner on the live village yet (see above).
+- M2 has not been confirmed by the owner on the live village yet (see above).
+- **Node 20 cannot run the frontend tests.** Vitest 5.1 and jsdom 31 declare Node >= 22.12 /
+  22.22 and their workers crash on Node 20.20 (`undici` fails to load). The build still works on
+  Node 20, and react-router 8.5 also declares Node >= 22.22 (warning only). So CI tests on Node 22
+  and only builds on Node 20 — a deviation from the brief ("Node 20"). `frontend/package.json`
+  still says `engines.node >= 20.19` and CLAUDE.md says "Node >= 20"; neither was changed.
+  **Owner decision needed:** raise the minimum to Node 22, or pin Vitest/jsdom to versions that
+  support Node 20.
+- The CI workflow has never run on GitHub. Not verified there: the runner's own shellcheck
+  version against `village` (0.11.0 passes locally), and npm 10 with Node 20 (npm 11 was used
+  locally). The README has no CI badge until the first green run.
 - Study wards show the same text twice (name and responsibility), because the SPEC gives one
   label per ward and both fields were seeded with it. Edit either in the Templates tab.
 - Templates: names can be edited, but Unions/wards cannot be added to or removed from a template
@@ -216,20 +266,23 @@ live village on port 8000 still runs the M1 code until `./village stop && ./vill
 - The "Coming in M<n>" numbers (M2 org structure, M3 agents + AI settings, M4 tasks/approvals/
   communication, M5 map, M6 memory + documents, M7 commerce + integrations, M8 reports, settings,
   backup, health) are an assumption — only "backup = M8" was given. They live in
-  `frontend/src/nav.ts`.
+  `frontend/src/nav.ts`. M9 (automation + release hardening) is an assumption too and exists only
+  in the README.
 - The small-screen layout was only spot-checked: the Ward page at 420 px wide has no horizontal
   overflow. The other pages and the drawer were checked at desktop width only.
 - `./village setup` runs `npm ci` every time, as specified, so each run reinstalls
   `node_modules` (a few seconds here).
-- shellcheck is not installed, so the CLI was only checked with `bash -n`
-  (`sudo apt install shellcheck` to enable that test).
+- shellcheck is not installed on this PC, so the everyday test run skips that test
+  (`sudo apt install shellcheck` to enable it). It was run once with shellcheck 0.11.0 from a
+  scratch install during DEV-DOCS-01 and `village` passed.
 - Starlette prints a deprecation warning that its TestClient will prefer `httpx2` over `httpx`;
   harmless today.
 
 ## Last session
-- Recorded M1 as accepted by the owner on port 8000.
-- Built M2 in two commits: Part A (backend) and Part B (frontend), then ran the final check on a
-  temp database, a copy of the real database and a real browser (details above).
+- DEV-DOCS-01: README, LICENSE, five real screenshots, CI workflow, `.gitignore` additions.
+  No application code, migration or test was changed. One commit; nothing was pushed.
+- Found while dry-running CI: the frontend tests need Node >= 22 (details above).
 - Nothing from M3+ exists (no agents, tasks, approvals, map, documents, commerce or backup).
-- Waiting for: the owner's click-through of M2 on the live village, and the ward names for the
-  Business/Career/Research/Project/Personal templates.
+- Waiting for: the owner's confirmation of M2, the ward names for the
+  Business/Career/Research/Project/Personal templates, the Node 20 vs 22 decision, and the first
+  CI run on GitHub (then the CI badge can be added).

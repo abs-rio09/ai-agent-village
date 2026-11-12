@@ -7,3 +7,16 @@ logs/*.log
 run/*.pid
 __pycache__/
 .pytest_cache/
+
+# secrets: never commit any env file (data/.env.* are temp files written while saving a key)
+.env
+.env.*
+data/.env*
+
+# stray runtime and tool output
+*.log
+*.pid
+coverage/
+.coverage
+.playwright-mcp/
+.DS_Store
