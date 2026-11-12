@@ -1,7 +1,10 @@
 # PROGRESS
 
-Milestone **M1 — Foundation**: Parts A, B and C are built and committed. One acceptance item is
-still open: the live run on the default port 8000 (see "Broken & known issues").
+Milestone **M1 — Foundation**: built, committed and **accepted by the owner**. The owner verified
+it himself on the default port 8000 (wizard, dashboard, restart persistence, logout/login).
+
+Milestone **M2 — Organization**: Part A (backend) is built and committed. Part B (frontend) is
+not built yet — the three Administration pages still say "Coming in M2".
 
 ## Done
 ### M1 Part A — scaffold, backend core, `./village` CLI
@@ -57,20 +60,62 @@ still open: the live run on the default port 8000 (see "Broken & known issues").
   page, logout, wrong-password error, login, and still logged in with data intact after
   `./village restart`. Afterwards the key and password were in neither the log nor the DB files.
 - Final check: `setup` ×2, `doctor`, `start`, `status`, health, `/` → 200, `restart`, `stop`,
-  `status` all passed with `VILLAGE_DB_PATH=/tmp/village-m1.db` **on port 8010**
-  (`VILLAGE_PORT=8010`), not on 8000 — see below.
+  `status` all passed with `VILLAGE_DB_PATH=/tmp/village-m1.db` on port 8010
+  (`VILLAGE_PORT=8010`).
+- Acceptance on port 8000: done by the owner (wizard, dashboard, restart persistence,
+  logout/login) after the `api-gateway` Docker container that held the port was stopped and its
+  auto-restart disabled.
+
+### M2 Part A — organization backend
+- Migration `0003`: `upazila_template`, `union_template`, `ward_template`, `upazila`,
+  `union_unit` ("union" is an SQL keyword), `ward`, `office`. Every foreign key down the
+  hierarchy is `ON DELETE CASCADE`; all tables have `created_at`/`updated_at`. `office` has a
+  CHECK (`ward` needs a ward, `central` must not have one) and a partial unique index that allows
+  only one central office. `app_meta.schema_version` = 3.
+- Seeded in the migration: the 6 Upazila templates (SPEC §5) with 5 Union names each (SPEC §11),
+  a ward set per template, and the one Central Administration office. Study uses the 9 ward
+  responsibilities from SPEC §11 (as both ward name and responsibility). No Upazila, Union or Ward
+  is seeded: structure is generated on demand only, never at setup.
+- **[owner to supply ward names for Business/Career/Research/Project/Personal]** — the SPEC has
+  no ward list for these five templates, so they are seeded as "Ward 1".."Ward 9" with an empty
+  responsibility. They can be filled in from the Templates editor (Part B) without code.
+- Templates are editable without code: `GET /api/templates`, `PATCH /api/templates/{key}`,
+  `PATCH /api/templates/unions/{id}`, `PATCH /api/templates/wards/{id}`. Edits affect future
+  generation only (existing units are copies).
+- CRUD: `/api/upazilas`, `/api/upazilas/{id}`, `/api/upazilas/{id}/unions`, `/api/unions/{id}`,
+  `/api/unions/{id}/wards` (POST adds the next ward number and its office), `/api/wards/{id}`,
+  `/api/offices/{id}`, `GET /api/offices/central`. Names are trimmed, 1–80 characters; duplicate
+  name → 409; missing parent → 404. Edits use `PATCH`.
+- Deletes cascade and need the body `{"confirm_name": "<exact name>"}` (otherwise 400). A
+  `TODO(M3)` comment marks where deleting units that still have agents must be blocked.
+- `POST /api/upazilas/standard` (one Upazila per template, skips existing names),
+  `POST /api/upazilas/{id}/generate-standard` (missing template Unions + their wards + one office
+  per ward, in one transaction; second run creates 0) and `GET .../generate-standard/preview`
+  (same counts, no writes). 400 when the Upazila has no template. Counts come from the template
+  rows; nothing is hardcoded.
+- `GET /api/org/tree` (nested tree with counts, 5 queries whatever the size) and
+  `GET /api/stats/overview` (real counts: upazilas, unions, wards, offices, ward_offices — no
+  agent or task numbers).
+- Choices made that the brief left open:
+  - A ward added by hand also gets its office (there is no "create office" endpoint, and the
+    Ward & Office page needs every ward to have one). Office name = "<ward name> Office".
+  - Renaming a ward also renames its office while the office still has that automatic name; an
+    office renamed by hand is left alone.
+  - `offices` in the stats counts every office row, so it includes Central Administration
+    (Study generated → 46); `ward_offices` is the number without it (45).
+  - Template descriptions are seeded empty (the SPEC gives none).
+- Tests: pytest 121 passed, 1 skipped (shellcheck). New in `tests/test_m2_org.py` (39 tests): seed
+  names vs SPEC, CRUD, 409/404/422, delete confirmation and cascades, generation (5/45/45, wards
+  1..9, idempotent, one transaction — a forced failure midway leaves nothing), edited templates used
+  by the next generation only, stats vs DB, tree counts, no query-per-node, 401 on every new route,
+  upgrade 0002→0003 keeps data, models match migrations, parallel requests do not duplicate.
+- Not yet done for Part A: no run against a real server process or a copy of the real database
+  (that is the M2 final check, after Part B).
 
 ## In progress
-- Nothing. M2 has not been started.
+- M2 Part B (frontend): not started.
 
 ## Broken & known issues
-- **M1 is not fully accepted on port 8000.** The final check as written stops at `./village doctor`
-  (`FAIL port: 8000 on 127.0.0.1 is in use by another program`). Everything was verified on other
-  ports instead. To close this: stop the `api-gateway` container and re-run the final check, or
-  decide on a different default port.
-- **Port 8000 is occupied on this PC** by the Docker container `api-gateway` (0.0.0.0:8000), which
-  belongs to another project. `./village start` on the default port fails until that container is
-  stopped; `./village doctor` reports it as a FAIL. Workaround: `VILLAGE_PORT=<other>`.
 - `VILLAGE_SECRET_KEY` is required and generated, but nothing uses it yet (session tokens are
   random and stored hashed). It is reserved for future signing needs.
 - Demo/AI: no AI provider code exists yet. `ai_mode`, the Ollama URL and the Anthropic key are
@@ -79,8 +124,9 @@ still open: the live run on the default port 8000 (see "Broken & known issues").
   in Ollama mode without a key still reports `demo_mode: true`.
 - Login lockout is in memory: it resets when the server restarts. Sessions are not cleaned up
   on a schedule (expired rows are deleted at the next login).
-- The owner has not yet clicked through the wizard personally; the browser verification above was
-  done by the assistant in a headless browser on a scratch database, not on `data/village.db`.
+- Org names are compared exactly: "Garden" and "garden" count as two different names.
+- A session model/migration mismatch from M1 was fixed in the model only (`session.user_id` now
+  declares the index that migration 0002 already created); no schema change.
 - The "Coming in M<n>" numbers (M2 org structure, M3 agents + AI settings, M4 tasks/approvals/
   communication, M5 map, M6 memory + documents, M7 commerce + integrations, M8 reports, settings,
   backup, health) are an assumption — only "backup = M8" was given. They live in
@@ -94,7 +140,7 @@ still open: the live run on the default port 8000 (see "Broken & known issues").
   harmless today.
 
 ## Last session
-- Built M1 Parts A, B and C in three commits. Nothing from M2+ exists (no org structure, agents,
-  tasks, approvals, map, documents, commerce or backup).
-- Not done: final check on port 8000 (blocked by the `api-gateway` container); owner's own
-  click-through of wizard / login / logout / restart persistence.
+- Recorded M1 as accepted by the owner on port 8000.
+- Built and committed M2 Part A (backend). Nothing from M3+ exists (no agents, tasks, approvals,
+  map, documents, commerce or backup).
+- Next: M2 Part B (frontend), then the M2 final check on a temp DB and a copy of the real DB.
