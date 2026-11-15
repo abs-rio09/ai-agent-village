@@ -3,10 +3,14 @@ import { Link, Navigate, Route, Routes } from "react-router";
 import AppShell from "./components/AppShell";
 import { Button, FullScreenMessage } from "./components/ui";
 import { ALL_PAGES, isBuilt } from "./nav";
+import AgentProfile from "./pages/AgentProfile";
+import Agents from "./pages/Agents";
+import AgentWizard from "./pages/AgentWizard";
 import ComingSoon from "./pages/ComingSoon";
 import Login from "./pages/Login";
 import Overview from "./pages/Overview";
 import SetupWizard from "./pages/SetupWizard";
+import Tasks from "./pages/Tasks";
 import Unions from "./pages/Unions";
 import Upazilas from "./pages/Upazilas";
 import Wards from "./pages/Wards";
@@ -60,6 +64,10 @@ export default function App() {
         <Route path="/upazilas" element={<Upazilas />} />
         <Route path="/unions" element={<Unions />} />
         <Route path="/wards" element={<Wards />} />
+        <Route path="/agents" element={<Agents />} />
+        <Route path="/agents/new" element={<AgentWizard />} />
+        <Route path="/agents/profile" element={<AgentProfile timezone={authed?.village.timezone} />} />
+        <Route path="/tasks" element={<Tasks timezone={authed?.village.timezone} />} />
         {ALL_PAGES.filter((page) => !isBuilt(page)).map((page) => (
           <Route key={page.id} path={page.path} element={<ComingSoon page={page} />} />
         ))}

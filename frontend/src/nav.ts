@@ -2,7 +2,9 @@
 //
 // `milestone` is the milestone in which a page gets built. Pages up to BUILT_MILESTONE exist
 // today; every other page renders an honest "Coming in M<n>" placeholder with no data.
-// NOTE: the M2-M8 assignment below is provisional — adjust it here if the build plan differs.
+// NOTE: the M4-M8 assignment below is provisional — adjust it here if the build plan differs.
+// M3 built Agent Management, Agent Profile and the Task Center. Agent Chat and AI Model Settings
+// were not part of M3 and are parked on M4 until the owner says otherwise.
 
 import {
   Activity,
@@ -66,13 +68,13 @@ export const NAV_GROUPS: NavGroup[] = [
     pages: [
       { id: "agents", path: "/agents", label: "Agent Management", icon: Bot, milestone: 3, blurb: "Create agents from templates, assign them to offices, and enable, pause or disable them." },
       { id: "agent-profile", path: "/agents/profile", label: "Agent Profile", icon: IdCard, milestone: 3, blurb: "One agent's role, instructions, tools, permissions and task history." },
-      { id: "agent-chat", path: "/chat", label: "Agent Chat", icon: MessagesSquare, milestone: 3, blurb: "Talk to an agent directly." },
+      { id: "agent-chat", path: "/chat", label: "Agent Chat", icon: MessagesSquare, milestone: 4, blurb: "Talk to an agent directly." },
     ],
   },
   {
     label: "Operations",
     pages: [
-      { id: "tasks", path: "/tasks", label: "Task Center", icon: ListChecks, milestone: 4, blurb: "Create, delegate and follow tasks through the Central Manager." },
+      { id: "tasks", path: "/tasks", label: "Task Center", icon: ListChecks, milestone: 3, blurb: "Send requests to the Central Manager and follow how they are delegated." },
       { id: "approvals", path: "/approvals", label: "Approval Center", icon: ShieldCheck, milestone: 4, blurb: "Approve or reject sensitive actions that agents request." },
       { id: "communication", path: "/communication", label: "Communication History", icon: Radio, milestone: 4, blurb: "The structured messages agents send to each other." },
     ],
@@ -102,7 +104,7 @@ export const NAV_GROUPS: NavGroup[] = [
     label: "System",
     pages: [
       { id: "integrations", path: "/integrations", label: "Integration Settings", icon: Plug, milestone: 7, blurb: "Connector configuration and status (for example Messenger)." },
-      { id: "ai-models", path: "/ai-models", label: "AI Model Settings", icon: Cpu, milestone: 3, blurb: "Choose and test the AI provider: Demo, Ollama or Anthropic." },
+      { id: "ai-models", path: "/ai-models", label: "AI Model Settings", icon: Cpu, milestone: 4, blurb: "Choose and test the AI provider: Demo, Ollama or Anthropic." },
       { id: "settings", path: "/settings", label: "Application Settings", icon: Settings, milestone: 8, blurb: "Village name, timezone, password and other application settings." },
       { id: "backup", path: "/backup", label: "Backup & Restore", icon: DatabaseBackup, milestone: 8, blurb: "Create and restore backups of the village." },
       { id: "health", path: "/health", label: "System Health & Logs", icon: Activity, milestone: 8, blurb: "Server health, background jobs and logs." },
@@ -113,7 +115,7 @@ export const NAV_GROUPS: NavGroup[] = [
 export const ALL_PAGES: PageDef[] = NAV_GROUPS.flatMap((group) => group.pages);
 
 /** The last milestone whose pages are really built. */
-export const BUILT_MILESTONE = 2;
+export const BUILT_MILESTONE = 3;
 
 export function isBuilt(page: PageDef): boolean {
   return page.milestone <= BUILT_MILESTONE;

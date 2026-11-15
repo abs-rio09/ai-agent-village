@@ -156,6 +156,9 @@ export interface OverviewStats {
   /** Every office, including Central Administration. */
   offices: number;
   ward_offices: number;
+  /** Every agent, the Central Manager included. */
+  agents: number;
+  active_agents: number;
 }
 
 export interface UpazilaInput {
@@ -171,6 +174,158 @@ export interface DeleteResult {
   unions: number;
   wards: number;
   offices: number;
+}
+
+// ---- agents (M3) ----
+
+export type Lifecycle = "active" | "paused" | "disabled";
+export type RuntimeState = "idle" | "working" | "waiting" | "offline";
+
+export interface AgentTemplate {
+  id: number;
+  key: string;
+  name: string;
+  role: string;
+  description: string;
+  avatar_key: string;
+  default_instructions: string;
+  default_tools: string[];
+  default_permissions: string[];
+}
+
+export interface CatalogItem {
+  key: string;
+  label: string;
+  description: string;
+  /** Will always need the Chairman's approval once approvals exist (M4). */
+  sensitive: boolean;
+}
+
+export interface AgentOptions {
+  tools: CatalogItem[];
+  permissions: CatalogItem[];
+  providers: string[];
+  /** False in M3: tools and permissions are stored, not enforced. */
+  enforced: boolean;
+}
+
+export interface AgentLocation {
+  office: { id: number; name: string; kind: string };
+  ward: { id: number; number: number; name: string } | null;
+  union: { id: number; name: string } | null;
+  upazila: { id: number; name: string } | null;
+  /** "Study Upazila › Academic Management › Ward 1: Class Routine" */
+  path: string;
+}
+
+export interface Agent {
+  id: number;
+  display_name: string;
+  avatar_key: string;
+  role: string;
+  description: string;
+  template_id: number | null;
+  template_key: string | null;
+  template_name: string | null;
+  office_id: number | null;
+  /** null = the agent's office was deleted. */
+  location: AgentLocation | null;
+  system_instructions: string;
+  allowed_tools: string[];
+  permissions: string[];
+  provider: string;
+  lifecycle: Lifecycle;
+  runtime_state: RuntimeState;
+  is_central_manager: boolean;
+  /** True = it has tasks or messages, so it can only be disabled, not deleted. */
+  has_history: boolean;
+  created_at: string;
+  updated_at: string;
+  disabled_at: string | null;
+}
+
+export interface AgentInput {
+  template_id: number;
+  display_name: string;
+  office_id: number;
+  role?: string;
+  description?: string;
+  system_instructions?: string;
+  allowed_tools?: string[];
+  permissions?: string[];
+  activate?: boolean;
+}
+
+export type AgentPatch = Partial<Omit<AgentInput, "template_id" | "activate">>;
+export type AgentAction = "activate" | "pause" | "disable";
+
+// ---- tasks (M3) ----
+
+export type TaskStatus = "QUEUED" | "ASSIGNED" | "RUNNING" | "WAITING_APPROVAL" | "SUCCEEDED" | "FAILED" | "CANCELLED";
+export type TaskPriority = "low" | "normal" | "high";
+
+export interface AgentRef {
+  id: number;
+  display_name: string;
+  role: string;
+  avatar_key: string;
+  is_central_manager: boolean;
+}
+
+export interface Task {
+  id: number;
+  title: string;
+  description: string;
+  created_by: string;
+  created_by_name: string;
+  assigned_agent: AgentRef | null;
+  parent_task_id: number | null;
+  depth: number;
+  priority: TaskPriority;
+  input: Record<string, unknown>;
+  output: string | null;
+  status: TaskStatus;
+  child_count: number;
+  created_at: string;
+  started_at: string | null;
+  completed_at: string | null;
+  error: string | null;
+}
+
+/** What the Central Manager decided; stored with the delegation. */
+export interface Routing {
+  upazila_name?: string;
+  matched_keywords?: string[];
+  agent_id?: number;
+  agent_name?: string;
+  agent_role?: string;
+  agent_path?: string;
+  agent_matched_words?: string[];
+  active_candidates?: number;
+  method?: string;
+}
+
+export interface AgentMessage {
+  id: number;
+  sender: AgentRef | null;
+  receiver: AgentRef | null;
+  task_id: number;
+  type: "delegation" | "result";
+  payload: { routing?: Routing; status?: TaskStatus; output?: string | null; error?: string | null; [key: string]: unknown };
+  created_at: string;
+}
+
+export interface TaskDetail extends Task {
+  children: Task[];
+  /** Messages of this task and of every task below it, oldest first. */
+  messages: AgentMessage[];
+}
+
+function query(params: Record<string, string | number | boolean | null | undefined>): string {
+  const parts = Object.entries(params)
+    .filter(([, value]) => value !== null && value !== undefined && value !== "")
+    .map(([key, value]) => `${key}=${encodeURIComponent(String(value))}`);
+  return parts.length ? `?${parts.join("&")}` : "";
 }
 
 export class ApiError extends Error {
@@ -300,6 +455,26 @@ export const api = {
     request<Template>("PUT", `/api/templates/${encodeURIComponent(key)}/wards`, { wards }),
   updateWardTemplate: (id: number, patch: { name?: string; responsibility?: string }) =>
     request<WardTemplate>("PATCH", `/api/templates/wards/${id}`, patch),
+
+  // agents
+  agentTemplates: () => request<AgentTemplate[]>("GET", "/api/agent-templates"),
+  agentOptions: () => request<AgentOptions>("GET", "/api/agent-options"),
+  agents: (filter: { upazila_id?: number | null; office_id?: number | null; lifecycle?: Lifecycle | null } = {}) =>
+    request<Agent[]>("GET", `/api/agents${query(filter)}`),
+  agent: (id: number) => request<Agent>("GET", `/api/agents/${id}`),
+  createAgent: (input: AgentInput) => request<Agent>("POST", "/api/agents", input),
+  updateAgent: (id: number, patch: AgentPatch) => request<Agent>("PATCH", `/api/agents/${id}`, patch),
+  agentAction: (id: number, action: AgentAction) => request<Agent>("POST", `/api/agents/${id}/${action}`),
+  deleteAgent: (id: number, confirmName: string) =>
+    request<{ deleted: boolean }>("DELETE", `/api/agents/${id}`, { confirm_name: confirmName }),
+
+  // tasks
+  tasks: (filter: { status?: TaskStatus | null; agent_id?: number | null; top_level?: boolean; limit?: number } = {}) =>
+    request<Task[]>("GET", `/api/tasks${query(filter)}`),
+  task: (id: number) => request<TaskDetail>("GET", `/api/tasks/${id}`),
+  createTask: (input: { title: string; description: string; priority: TaskPriority }) =>
+    request<Task>("POST", "/api/tasks", input),
+  cancelTask: (id: number) => request<TaskDetail>("POST", `/api/tasks/${id}/cancel`),
 };
 
 /** A message fit for the user from anything a failed call can throw. */

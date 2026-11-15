@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 
 import { api } from "../api";
 import App from "../App";
-import { ALL_PAGES, isBuilt } from "../nav";
+import { ALL_PAGES, BUILT_MILESTONE, isBuilt } from "../nav";
 import { SessionProvider } from "../session";
 import { HEALTH, STATS, USER, VILLAGE, mockFetch } from "./helpers";
 
@@ -85,10 +85,12 @@ describe("app shell", () => {
     expect(within(main).getByText("wal")).toBeInTheDocument();
   });
 
-  it("shows the real organization counts from /api/stats/overview and no agent or task numbers", async () => {
+  it("shows the real organization and agent counts from /api/stats/overview and no task numbers", async () => {
     const { callsTo } = mockFetch({
       ...AUTHED,
-      "GET /api/stats/overview": { body: { upazilas: 6, unions: 5, wards: 45, offices: 46, ward_offices: 45 } },
+      "GET /api/stats/overview": {
+        body: { upazilas: 6, unions: 5, wards: 45, offices: 46, ward_offices: 45, agents: 3, active_agents: 2 },
+      },
     });
     renderApp("/");
 
@@ -99,9 +101,11 @@ describe("app shell", () => {
     expect(within(main).getByTestId("stat-offices")).toHaveTextContent("46");
     expect(within(main).getByText("45 ward offices + Central Administration")).toBeInTheDocument();
     expect(callsTo("GET /api/stats/overview")).toHaveLength(1);
-    // the only tiles are the four org counts: nothing is invented for agents or tasks
-    expect(within(main).getAllByTestId(/^stat-/)).toHaveLength(4);
-    expect(within(main).queryByTestId("stat-agents")).not.toBeInTheDocument();
+    expect(within(main).getByTestId("stat-agents")).toHaveTextContent("3");
+    expect(within(main).getByText("2 active, the Central Manager included")).toBeInTheDocument();
+    // the only tiles are the four org counts and the agent count: nothing is invented for tasks
+    expect(within(main).getAllByTestId(/^stat-/)).toHaveLength(5);
+    expect(within(main).queryByTestId("stat-tasks")).not.toBeInTheDocument();
   });
 
   it("shows a dash, not a number, when the counts cannot be loaded", async () => {
@@ -121,14 +125,19 @@ describe("app shell", () => {
     expect(await screen.findByTestId("ai-mode-badge")).toHaveTextContent(label);
   });
 
-  it("no longer marks the three organization pages as coming later", async () => {
+  it("no longer marks the pages built in M2 and M3 as coming later", async () => {
     mockFetch(AUTHED);
     renderApp("/");
     const nav = await screen.findByRole("navigation", { name: "Village pages" });
-    for (const label of ["Upazila Management", "Union Management", "Ward & Office Management"]) {
-      expect(within(nav).getByRole("link", { name: label })).toBeInTheDocument(); // no "M2" badge in the name
+    const built = ["Upazila Management", "Union Management", "Ward & Office Management", "Agent Management", "Agent Profile", "Task Center"];
+    for (const label of built) {
+      expect(within(nav).getByRole("link", { name: label })).toBeInTheDocument(); // no "M<n>" badge in the name
     }
-    expect(within(nav).getByRole("link", { name: /^Agent Management\s*M3$/ })).toBeInTheDocument();
+    expect(BUILT_MILESTONE).toBe(3);
+    // not part of M3: still honest placeholders
+    expect(within(nav).getByRole("link", { name: /^Agent Chat\s*M4$/ })).toBeInTheDocument();
+    expect(within(nav).getByRole("link", { name: /^AI Model Settings\s*M4$/ })).toBeInTheDocument();
+    expect(within(nav).getByRole("link", { name: /^Approval Center\s*M4$/ })).toBeInTheDocument();
   });
 
   it("lists all 22 pages from the spec in the sidebar", async () => {
@@ -148,9 +157,9 @@ describe("app shell", () => {
     const user = renderApp("/");
     const nav = await screen.findByRole("navigation", { name: "Village pages" });
 
-    await user.click(within(nav).getByRole("link", { name: /^Task Center/ }));
+    await user.click(within(nav).getByRole("link", { name: /^Approval Center/ }));
     const main = screen.getByRole("main");
-    expect(within(main).getByRole("heading", { level: 1, name: "Task Center" })).toBeInTheDocument();
+    expect(within(main).getByRole("heading", { level: 1, name: "Approval Center" })).toBeInTheDocument();
     expect(within(main).getByText("Coming in M4")).toBeInTheDocument();
     expect(within(main).queryByRole("table")).not.toBeInTheDocument();
     expect(callsTo("GET /api/health")).toHaveLength(1); // only the overview asked for data

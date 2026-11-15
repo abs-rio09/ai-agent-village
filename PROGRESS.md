@@ -14,9 +14,9 @@ migration or test was changed. The CI workflow has **not run on GitHub yet** (no
 
 **DEV-M2-FIX-01 — max 9 wards per Union**: done and committed (see "M2 fix: max 9 wards").
 
-Milestone **M3 — Agents & Tasks**: in progress. Parts A (agent registry backend) and B (tasks,
-routing, delegation backend) are built and committed; Part C (the pages) is not built yet. See
-the M3 sections below for what exists.
+Milestone **M3 — Agents & Tasks**: Parts A, B and C are **built and committed, not yet accepted
+by the owner**. Checked on a scratch database and port 8013 only; the live village on port 8000
+was not touched and still runs the older code (see "How to verify M3 on the live village").
 
 ## Done
 ### M1 Part A — scaffold, backend core, `./village` CLI
@@ -338,6 +338,51 @@ the M3 sections below for what exists.
 - Not done / limits: one agent per request (no multi-agent coordination); no retry of failed
   tasks; no task deletion or clean-up of old tasks; providers other than Demo do not exist.
 
+### M3 Part C — Agents & Tasks pages (frontend, 2026-11-15)
+- `frontend/src/pages/Agents.tsx` (cards: SVG robot avatar by `avatar_key`, name, role, office
+  path, lifecycle + runtime badges; Upazila filter through `GET /api/agents?upazila_id=`),
+  `AgentWizard.tsx` at `/agents/new` (template → name → Office via Upazila → Union → Ward selects
+  → responsibilities/instructions → tools & permissions with the note "not enforced yet … enforced
+  in M4" → Save & activate), `AgentProfile.tsx` at `/agents/profile?id=` (edit, only changed
+  fields are sent; Activate/Pause/Disable; Delete with typed name, the server's 409 reason is
+  shown in the dialog, Delete is disabled when the agent has history; task history list),
+  `Tasks.tsx` (Send to Central Manager box, request list with status badges, detail with routing
+  result, child tasks, agent messages, final output, error, timestamps, Cancel).
+  Shared pieces in `frontend/src/components/agents.tsx`. No image files are loaded.
+- Polling: the Task Center asks again every 1.5 s only while a task is QUEUED/ASSIGNED/RUNNING and
+  removes the timer when nothing is active. A new request can look QUEUED for up to 1.5 s.
+- Sidebar: `BUILT_MILESTONE = 3`; Agent Management, Agent Profile and Task Center are live.
+  **Assumption:** Agent Chat and AI Model Settings were not in the M3 brief, so `nav.ts` now shows
+  them as "M4" — change it there if the plan differs. Overview has an Agents tile.
+- Tests: Vitest **74 passed** (18 new in `agents.test.tsx` and `tasks.test.tsx`; 4 shell tests
+  adjusted for the new sidebar and the Agents tile), run on Node 24.21.0. pytest unchanged:
+  **259 passed, 1 skipped**. `tsc --noEmit` and `vite build` pass — **built into a scratch folder,
+  not `frontend/dist`**, because the live village serves `frontend/dist`.
+- End-to-end in a real browser (scratch DB/.env/build, port 8013, server stopped afterwards):
+  logged in, created "Mina" (Study Assistant) with the wizard in Study Upazila › Academic
+  Management › Ward 1, sent "help me prepare for my exam" → SUCCEEDED, routed to Study Upazila,
+  child task SUCCEEDED with a "[Demo]" reply, parent report, two messages, "up to date".
+- Not checked in the browser: pause/disable/delete buttons, editing a profile, the Upazila filter,
+  Cancel, the failure display and small-screen layout (covered by Vitest only, layout not at all).
+  The session ended on a usage limit right after the browser check, so no further polish was done.
+- No `docs/02-DECISIONS` file exists in the repo; D-M3-02 and the routing rules were taken from
+  the task brief. README was not updated for M3.
+
+## How to verify M3 on the live village
+`./village stop && ./village setup && ./village start` (setup migrates to 0005 and rebuilds the
+frontend), log in, then:
+1. Village Overview: the Agents tile shows 1 (the Central Manager).
+2. Agent Management: one card, "Central Manager", active. Open it: no Pause/Disable/Delete.
+3. Upazila Management: make sure Study Upazila exists and has its standard structure.
+4. Agent Management → New agent → Study Assistant → name → Study Upazila / a Union / a Ward →
+   Next → Next (note "enforced in M4") → Save & activate → the profile opens.
+5. Task Center → "help me prepare for my exam" → Send. Within a few seconds: SUCCEEDED, routing
+   result "Study Upazila … Mina", a child task with a "[Demo]" reply, two agent messages.
+6. Send "hello there" → FAILED with a readable reason under "Error".
+7. The agent's profile: Delete is disabled (it has history); Pause it, send the exam request again
+   → FAILED "no active agent"; Activate it again.
+8. `./village restart`: the tasks and agents are still there.
+
 ## How to verify M2 on the live village
 `./village stop && ./village setup && ./village start`, log in, then:
 1. Village Overview: Upazilas 0, Unions 0, Wards 0, Offices 1 (Central Administration).
@@ -404,9 +449,8 @@ the M3 sections below for what exists.
   harmless today.
 
 ## Last session
-- DEV-M2-FIX-01: a Union may hold at most 9 wards (API 409, generation capped, template ward set
-  1–9 with 422 above, UI hides "Add ward" at 9 and shows a note). Tests pass; one commit; nothing
-  pushed; the live village was not restarted.
-- Still waiting for: the owner's confirmation of M2, the ward names for the
-  Business/Career/Research/Project/Personal templates, the Node 20 vs 22 decision, and the first
-  CI run on GitHub (then the CI badge can be added).
+- DEV-M3 Parts A, B and C: three commits, nothing pushed. Tests pass (pytest 259 + 1 skip,
+  Vitest 74). The live village was not restarted, migrated or rebuilt.
+- Waiting for: the owner's confirmation of M2 and M3, the milestone for Agent Chat and AI Model
+  Settings, the ward names for the Business/Career/Research/Project/Personal templates, the
+  Node 20 vs 22 decision, and the first CI run on GitHub.

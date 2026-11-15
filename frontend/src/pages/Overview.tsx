@@ -1,4 +1,4 @@
-import { Building2, Clock, Cpu, HeartPulse, House, Layers, Network, RefreshCw, Store, User as UserIcon } from "lucide-react";
+import { Bot, Building2, Clock, Cpu, HeartPulse, House, Layers, Network, RefreshCw, Store, User as UserIcon } from "lucide-react";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { Link } from "react-router";
 
@@ -7,7 +7,7 @@ import { aiModeLabel, cx } from "../components/ui";
 
 // Every value on this page comes from the backend: GET /api/village, GET /api/health and
 // GET /api/stats/overview (plus the browser clock, shown in the village timezone).
-// Agents and tasks do not exist yet, so no numbers are shown for them.
+// The agent count is real too (the Central Manager is an agent, so a new village shows 1).
 
 function formatIn(timezone: string, options: Intl.DateTimeFormatOptions, date: Date): string {
   try {
@@ -146,6 +146,7 @@ function OrgStats() {
     { key: "unions", label: "Unions", to: "/unions", icon: <Network size={15} aria-hidden="true" />, value: stats?.unions },
     { key: "wards", label: "Wards", to: "/wards", icon: <House size={15} aria-hidden="true" />, value: stats?.wards },
     { key: "offices", label: "Offices", to: "/wards", icon: <Store size={15} aria-hidden="true" />, value: stats?.offices },
+    { key: "agents", label: "Agents", to: "/agents", icon: <Bot size={15} aria-hidden="true" />, value: stats?.agents },
   ];
   return (
     <section aria-label="Organization">
@@ -154,7 +155,7 @@ function OrgStats() {
           {error}
         </p>
       )}
-      <div className="grid grid-cols-2 gap-4 xl:grid-cols-4">
+      <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-5">
         {tiles.map((tile) => (
           <Link key={tile.key} to={tile.to} className="panel block p-5 transition hover:border-night-500" aria-label={`${tile.label}: ${tile.value ?? "loading"}`}>
             <div className="flex items-center gap-2 text-mist-400">
@@ -166,6 +167,9 @@ function OrgStats() {
             </p>
             {tile.key === "offices" && stats && (
               <p className="mt-1 text-xs text-mist-400">{stats.ward_offices} ward offices + Central Administration</p>
+            )}
+            {tile.key === "agents" && stats && (
+              <p className="mt-1 text-xs text-mist-400">{stats.active_agents} active, the Central Manager included</p>
             )}
           </Link>
         ))}
@@ -234,10 +238,11 @@ export default function Overview({ village }: { village: Village }) {
         <section className="panel p-5 md:col-span-2" aria-label="What exists today">
           <h2 className="eyebrow">What exists today</h2>
           <p className="mt-3 text-sm leading-relaxed text-mist-300">
-            Milestones 1 and 2: a secure login, the database, this control center and the organization — Upazilas,
-            Unions, Wards and Offices, counted above straight from the database. There are no agents or tasks yet, so
-            no numbers are shown for them: agents arrive in <span className="font-mono text-xs text-mist-100">M3</span>,
-            tasks and approvals in <span className="font-mono text-xs text-mist-100">M4</span>.
+            Milestones 1 to 3: a secure login, the database, the organization (Upazilas, Unions, Wards, Offices) and
+            now agents and tasks. Agents are created from templates, and a request sent in the Task Center is routed
+            by the Central Manager to an agent. Replies come from the Demo provider and are marked{" "}
+            <span className="font-mono text-xs text-mist-100">[Demo]</span>: no AI model is connected. Tool and
+            permission enforcement and approvals arrive in <span className="font-mono text-xs text-mist-100">M4</span>.
           </p>
         </section>
       </div>

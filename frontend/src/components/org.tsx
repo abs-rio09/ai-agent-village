@@ -113,11 +113,21 @@ export function Breadcrumbs({ items }: { items: Crumb[] }) {
   );
 }
 
-export function PageHeader({ title, intro, actions }: { title: string; intro: string; actions?: ReactNode }) {
+export function PageHeader({
+  title,
+  intro,
+  actions,
+  eyebrow = "Administration",
+}: {
+  title: string;
+  intro: string;
+  actions?: ReactNode;
+  eyebrow?: string;
+}) {
   return (
     <div className="flex flex-wrap items-end justify-between gap-4">
       <div className="min-w-0">
-        <p className="eyebrow">Administration</p>
+        <p className="eyebrow">{eyebrow}</p>
         <h1 className="mt-1.5 text-2xl font-semibold tracking-tight text-mist-50">{title}</h1>
         <p className="mt-1.5 max-w-2xl text-sm text-mist-400">{intro}</p>
       </div>
