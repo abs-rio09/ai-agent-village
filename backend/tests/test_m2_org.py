@@ -152,11 +152,12 @@ def test_database_allows_only_one_central_office_and_enforces_kind(api: TestClie
             )
 
 
-def test_schema_version_and_revision_are_at_0003(migrated: Path) -> None:
+def test_schema_version_and_revision_are_at_0003(env: Path) -> None:
+    command.upgrade(alembic_config(), "0003")  # M2's revision; later milestones are checked in their own tests
     with sqlite3.connect(get_settings().db_file) as connection:
         version = connection.execute("SELECT value FROM app_meta WHERE key = 'schema_version'").fetchone()[0]
     assert version == "3"
-    assert check()["current"] == check()["head"] == "0003"
+    assert check()["current"] == "0003"
 
 
 def test_upgrade_from_0002_keeps_existing_data_and_downgrade_removes_only_m2(env: Path) -> None:
@@ -557,14 +558,16 @@ def test_template_edit_validation(api: TestClient) -> None:
 
 
 def test_stats_overview_matches_the_database(api: TestClient) -> None:
-    assert ok(api.get("/api/stats/overview")) == {"upazilas": 0, "unions": 0, "wards": 0, "offices": 1, "ward_offices": 0}
+    org_keys = ("upazilas", "unions", "wards", "offices", "ward_offices")  # agent counts: see test_m3_agents.py
+    first = ok(api.get("/api/stats/overview"))
+    assert {key: first[key] for key in org_keys} == {"upazilas": 0, "unions": 0, "wards": 0, "offices": 1, "ward_offices": 0}
     ok(api.post("/api/upazilas/standard"))
     upazila = next(row for row in ok(api.get("/api/upazilas")) if row["template_key"] == "study")
     ok(api.post(f"/api/upazilas/{upazila['id']}/generate-standard"))
     extra = ok(api.post(f"/api/upazilas/{upazila['id']}/unions", json={"name": "Extra"}), 201)
     ok(api.post(f"/api/unions/{extra['id']}/wards", json={}), 201)
 
-    stats = ok(api.get("/api/stats/overview"))
+    stats = {key: value for key, value in ok(api.get("/api/stats/overview")).items() if key in org_keys}
     counts = db_counts()
     assert stats == {
         "upazilas": counts["upazila"],
@@ -574,7 +577,6 @@ def test_stats_overview_matches_the_database(api: TestClient) -> None:
         "ward_offices": counts["office"] - 1,
     }
     assert stats == {"upazilas": 6, "unions": 6, "wards": 46, "offices": 47, "ward_offices": 46}
-    assert set(stats) == {"upazilas", "unions", "wards", "offices", "ward_offices"}  # no agent/task numbers yet
 
 
 def test_org_tree_is_nested_with_correct_counts(api: TestClient) -> None:
@@ -690,7 +692,9 @@ def test_every_m2_route_needs_a_session(api: TestClient) -> None:
     assert NEW_ROUTES <= routes
     # nothing M2 added is public, and nothing was added that this test does not know about
     m1_routes = {("GET", "/api/village"), ("GET", "/api/auth/me"), ("POST", "/api/auth/logout")}
-    assert {route for route in routes if route[1] not in PUBLIC_PATHS} == NEW_ROUTES | m1_routes
+    later = ("/api/agent", "/api/tasks")  # M3 routes have the same check in their own test files
+    m2_and_before = {route for route in routes if route[1] not in PUBLIC_PATHS and not route[1].startswith(later)}
+    assert m2_and_before == NEW_ROUTES | m1_routes
     for method, template in sorted(NEW_ROUTES):
         path = re.sub(r"\{key\}", "study", template)
         path = re.sub(r"\{\w+\}", "1", path)  # real ids, so a missing guard would really act

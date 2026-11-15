@@ -14,6 +14,9 @@ migration or test was changed. The CI workflow has **not run on GitHub yet** (no
 
 **DEV-M2-FIX-01 — max 9 wards per Union**: done and committed (see "M2 fix: max 9 wards").
 
+Milestone **M3 — Agents & Tasks**: in progress. Part A (agent registry backend) is built and
+committed; see the M3 sections below for what exists.
+
 ## Done
 ### M1 Part A — scaffold, backend core, `./village` CLI
 - Project layout, `.gitignore`, `backend/requirements.txt` (installs on Python 3.14.4;
@@ -249,6 +252,46 @@ migration or test was changed. The CI workflow has **not run on GitHub yet** (no
 - **The live village on port 8000 still runs the old code** — it was not restarted or rebuilt by
   the assistant. Run `./village stop && ./village setup && ./village start` to use the fix.
 
+### M3 Part A — agent registry, templates, Demo provider (backend, 2026-11-15)
+- Migration `0004_agents.py` (schema_version 4): `agent_template` and `agent`. An agent stores only
+  `office_id`; its Upazila/Union/Ward are derived from the office in the API (`location`, `path`).
+  One column beyond the brief's list: `agent.is_central_manager` with a partial unique index, so the
+  database itself allows at most one Central Manager (same idea as the single central office).
+- Seed (`backend/app/seed.py`, data in `backend/app/agent_catalog.py`): the 15 templates of SPEC §6
+  and ONE "Central Manager" (Village Manager template) in Central Administration. It runs in
+  migration 0004 and again at every app start (only if the `agent` table exists); it only inserts
+  what is missing, never changes existing rows. The Doctor template says general information and
+  wellness only, no diagnosis, no prescription; the Repair Technician template says approved tools
+  only, no terminal access — and the tool catalogue has no shell/terminal/filesystem tool at all.
+- Tools (10 keys, SPEC §8E) and permissions (9 keys, 4 marked sensitive) are a fixed catalogue in
+  `agent_catalog.py`, served by `GET /api/agent-options` (an extra endpoint, needed for form
+  labels). **They are stored on the agent but NOT enforced, and no tool is executable** — that is
+  M4. `memory_config` and `working_schedule` are stored as `{}` and are read-only for now.
+- API (session required): `GET /api/agent-templates`, `GET /api/agent-options`, `GET /api/agents`
+  (`office_id`, `upazila_id`, `lifecycle` filters; one query), `POST /api/agents` (`template_id`,
+  `display_name`, `office_id`; template defaults copied, optional overrides, `activate` default
+  true), `GET/PATCH /api/agents/{id}`, `POST /api/agents/{id}/activate|pause|disable`,
+  `DELETE /api/agents/{id}` (needs `{"confirm_name"}` like the org deletes).
+- Central Manager: pause, disable, delete and moving it to another office → 409. It can be renamed.
+- Deleting a Ward/Union/Upazila: the agents of the deleted offices are kept, get `office_id` NULL
+  and are disabled (`agents_disabled` in the delete response). This replaces the `TODO(M3)` notes
+  in `org.py` that planned a 409 instead. An agent without an office cannot be activated (409)
+  until it is given a new office.
+- Delete rule: in Part A no agent can have history yet (tasks arrive in Part B), so the
+  "has history → 409, disable instead" branch exists but **cannot trigger and is not tested yet**.
+- Providers: `backend/app/providers/base.py` (`Provider`: `name`, `is_configured()`,
+  `reply(agent, task) -> str`), `providers/demo.py` (fixed three-step outline per template, every
+  reply starts with "[Demo]" and says no AI model was used; no network) and a registry that returns
+  Demo for any unknown or unconfigured provider. **Only Demo exists**: an agent's `provider` can
+  only be "demo"; Ollama and Anthropic are not implemented and were not contacted.
+- `GET /api/stats/overview` now also returns `agents` and `active_agents`.
+- Three M2 tests were adjusted because they pinned M2-only facts: "head is 0003" (now upgrades to
+  0003 explicitly), "stats have no agent numbers" and "no routes other than M1/M2".
+- Tests: pytest **165 passed, 1 skipped** (shellcheck); 37 new in `tests/test_m3_agents.py`
+  (0003→0004→0003→0004 on a database with real M2 rows, seeding three times, CRUD, filters,
+  lifecycle, Central Manager protection, office deletion at ward/union/upazila level, Demo
+  provider with sockets blocked, 401 on all 10 routes). No frontend change in this part.
+
 ## How to verify M2 on the live village
 `./village stop && ./village setup && ./village start`, log in, then:
 1. Village Overview: Upazilas 0, Unions 0, Wards 0, Offices 1 (Central Administration).
@@ -292,8 +335,8 @@ migration or test was changed. The CI workflow has **not run on GitHub yet** (no
   be added to or removed from a template.
 - Wards cannot be renumbered or reordered; deleting a ward leaves a gap in the numbers. Upazilas
   and Unions have a `sort_order` in the API but no reorder control in the UI.
-- Deleting an Upazila/Union/Ward is not blocked by agents because agents do not exist yet;
-  `TODO(M3)` comments in `backend/app/api/org.py` mark where that check must go.
+- Deleting an Upazila/Union/Ward is not blocked by agents: the agents of the deleted offices
+  are kept, lose their office and are disabled (M3 Part A).
 - The org pages load the whole tree (`/api/org/tree`) and reload it after every change. Fine for
   the standard structure (6 Upazilas → 270 wards was measured at 5 queries); not paginated.
 - Org names are compared exactly: "Garden" and "garden" count as two different names.

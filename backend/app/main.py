@@ -13,6 +13,8 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from app import __version__
 from app.api import api_router
 from app.config import get_settings
+from app.db import get_engine
+from app.seed import seed_if_migrated
 
 _ALLOWED_HOSTNAMES = {"127.0.0.1", "localhost", "[::1]"}
 _SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
@@ -49,7 +51,10 @@ def _hostname(host_header: str) -> str:
 
 @asynccontextmanager
 async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
-    get_settings()  # fail fast on invalid configuration (e.g. a non-loopback host)
+    settings = get_settings()  # fail fast on invalid configuration (e.g. a non-loopback host)
+    if settings.db_file.exists():  # never create the database here: that is `./village setup`
+        # Idempotent: puts back a missing agent template or a missing Central Manager.
+        seed_if_migrated(get_engine())
     yield
 
 

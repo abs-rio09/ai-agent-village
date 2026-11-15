@@ -4,7 +4,22 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint, select, text
+from typing import Any
+
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+    select,
+    text,
+)
 from sqlalchemy.orm import Mapped, Session, mapped_column
 
 from app.db import Base, utcnow
@@ -171,6 +186,61 @@ class Office(Timestamps, Base):
     ward_id: Mapped[int | None] = mapped_column(ForeignKey("ward.id", ondelete="CASCADE"), nullable=True)
     name: Mapped[str] = mapped_column(String(80), nullable=False)
     description: Mapped[str] = mapped_column(Text, nullable=False, default="")
+
+
+# ---------------------------------------------------------------- agents (M3)
+#
+# An agent belongs to an office; its Upazila, Union and Ward follow from that office and are
+# not stored again. Tools and permissions are stored only — nothing enforces them before M4.
+
+
+class AgentTemplate(Timestamps, Base):
+    __tablename__ = "agent_template"
+    __table_args__ = (UniqueConstraint("key", name="uq_agent_template_key"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    key: Mapped[str] = mapped_column(String(40), nullable=False)
+    name: Mapped[str] = mapped_column(String(80), nullable=False)
+    role: Mapped[str] = mapped_column(String(80), nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    avatar_key: Mapped[str] = mapped_column(String(40), nullable=False, default="")
+    default_instructions: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    default_tools: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    default_permissions: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+
+
+class Agent(Timestamps, Base):
+    __tablename__ = "agent"
+    __table_args__ = (
+        CheckConstraint("lifecycle IN ('active', 'paused', 'disabled')", name="ck_agent_lifecycle"),
+        CheckConstraint("runtime_state IN ('idle', 'working', 'waiting', 'offline')", name="ck_agent_runtime_state"),
+        Index("ix_agent_office_id", "office_id"),
+        Index(
+            "uq_agent_single_central_manager",
+            "is_central_manager",
+            unique=True,
+            sqlite_where=text("is_central_manager = 1"),
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    display_name: Mapped[str] = mapped_column(String(80), nullable=False)
+    avatar_key: Mapped[str] = mapped_column(String(40), nullable=False, default="")
+    role: Mapped[str] = mapped_column(String(80), nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    template_id: Mapped[int | None] = mapped_column(ForeignKey("agent_template.id", ondelete="SET NULL"), nullable=True)
+    # NULL = the agent's office was deleted (the agent is then disabled, its history kept).
+    office_id: Mapped[int | None] = mapped_column(ForeignKey("office.id", ondelete="SET NULL"), nullable=True)
+    system_instructions: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    allowed_tools: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    permissions: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    provider: Mapped[str] = mapped_column(String(32), nullable=False, default="demo")
+    memory_config: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    working_schedule: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    lifecycle: Mapped[str] = mapped_column(String(16), nullable=False, default="active")
+    runtime_state: Mapped[str] = mapped_column(String(16), nullable=False, default="idle")
+    is_central_manager: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    disabled_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 
 def get_meta(session: Session, key: str) -> str | None:

@@ -16,9 +16,9 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.api.fields import Description, IconKey, Name, Responsibility
-from app.db import get_session
+from app.db import get_session, utcnow
 from app.limits import MAX_WARDS_PER_UNION
-from app.models import Office, UnionTemplate, UnionUnit, Upazila, UpazilaTemplate, Village, Ward, WardTemplate
+from app.models import Agent, Office, UnionTemplate, UnionUnit, Upazila, UpazilaTemplate, Village, Ward, WardTemplate
 
 router = APIRouter(tags=["organization"])
 
@@ -138,6 +138,7 @@ class DeleteResult(BaseModel):
     unions: int = 0
     wards: int = 0
     offices: int = 0
+    agents_disabled: int = 0  # agents of the deleted offices: kept, without an office, disabled
 
 
 class StandardUpazilasResult(BaseModel):
@@ -336,6 +337,24 @@ def _next_sort_order(db: Session, column, *where) -> int:  # noqa: ANN001, ANN00
     return (db.execute(select(func.max(column)).where(*where)).scalar_one() or 0) + 1
 
 
+def _release_agents(db: Session, office_ids) -> int:  # noqa: ANN001
+    """Offices are about to be deleted: their agents are kept (with their history) but lose the
+    office and are disabled. Returns how many agents that was. The caller commits."""
+    now = utcnow()
+    result = db.execute(
+        update(Agent)
+        .where(Agent.office_id.in_(office_ids))
+        .values(
+            office_id=None,
+            lifecycle="disabled",
+            runtime_state="offline",
+            disabled_at=func.coalesce(Agent.disabled_at, now),
+            updated_at=now,
+        )
+    )
+    return result.rowcount
+
+
 def _lock_for_write(db: Session, model, row_id: int) -> bool:  # noqa: ANN001
     """Write to a parent row FIRST (a no-op "id = id"): the UPDATE takes SQLite's write lock, so a
     concurrent request waits (busy_timeout) instead of reading the same "what is missing / next
@@ -446,11 +465,24 @@ def delete_upazila(
 ) -> DeleteResult:
     upazila = _get_upazila(db, upazila_id)
     _require_confirmation(body, upazila.name)
-    # TODO(M3): refuse (409) while any Office below this Upazila still has agents assigned.
     counts = _upazila_counts(db, upazila_id).get(upazila_id, UpazilaCounts())
+    agents = _release_agents(
+        db,
+        select(Office.id)
+        .join(Ward, Ward.id == Office.ward_id)
+        .join(UnionUnit, UnionUnit.id == Ward.union_id)
+        .where(UnionUnit.upazila_id == upazila_id),
+    )
     db.execute(delete(Upazila).where(Upazila.id == upazila_id))  # FKs cascade to unions, wards, offices
     db.commit()
-    return DeleteResult(deleted=True, upazilas=1, unions=counts.unions, wards=counts.wards, offices=counts.offices)
+    return DeleteResult(
+        deleted=True,
+        upazilas=1,
+        unions=counts.unions,
+        wards=counts.wards,
+        offices=counts.offices,
+        agents_disabled=agents,
+    )
 
 
 # ---------------------------------------------------------------- standard structure
@@ -600,11 +632,13 @@ def delete_union(
 ) -> DeleteResult:
     union = _get_union(db, union_id)
     _require_confirmation(body, union.name)
-    # TODO(M3): refuse (409) while any Office below this Union still has agents assigned.
     counts = _union_counts(db, union_id=union_id).get(union_id, UnionCounts())
+    agents = _release_agents(
+        db, select(Office.id).join(Ward, Ward.id == Office.ward_id).where(Ward.union_id == union_id)
+    )
     db.execute(delete(UnionUnit).where(UnionUnit.id == union_id))  # FKs cascade to wards and offices
     db.commit()
-    return DeleteResult(deleted=True, unions=1, wards=counts.wards, offices=counts.offices)
+    return DeleteResult(deleted=True, unions=1, wards=counts.wards, offices=counts.offices, agents_disabled=agents)
 
 
 # ---------------------------------------------------------------- wards
@@ -677,11 +711,11 @@ def delete_ward(
 ) -> DeleteResult:
     ward = _get_ward(db, ward_id)
     _require_confirmation(body, ward.name)
-    # TODO(M3): refuse (409) while this Ward's Office still has agents assigned.
     offices = db.execute(select(func.count()).select_from(Office).where(Office.ward_id == ward_id)).scalar_one()
+    agents = _release_agents(db, select(Office.id).where(Office.ward_id == ward_id))
     db.execute(delete(Ward).where(Ward.id == ward_id))  # the FK cascades to the ward's office
     db.commit()
-    return DeleteResult(deleted=True, wards=1, offices=offices)
+    return DeleteResult(deleted=True, wards=1, offices=offices, agents_disabled=agents)
 
 
 # ---------------------------------------------------------------- offices
