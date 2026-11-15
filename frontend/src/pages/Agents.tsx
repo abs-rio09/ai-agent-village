@@ -15,7 +15,7 @@ function AgentCard({ agent }: { agent: Agent }) {
     <Link
       to={`/agents/profile?id=${agent.id}`}
       aria-label={`${agent.display_name}, ${agent.role}`}
-      className="panel flex gap-4 p-4 transition hover:border-night-500"
+      className="panel flex min-w-0 gap-4 p-4 transition hover:border-night-500"
     >
       <AgentAvatar avatarKey={agent.avatar_key} size={56} />
       <div className="min-w-0 flex-1">
@@ -121,7 +121,7 @@ export default function Agents() {
           </Link>
         </EmptyState>
       ) : (
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3" role="group" aria-label="Agents">
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3" role="group" aria-label="Agents">
           {agents.map((agent) => (
             <AgentCard key={agent.id} agent={agent} />
           ))}

@@ -334,7 +334,9 @@ export default function AgentProfile({ timezone }: { timezone?: string }) {
           </section>
 
           {tree && options ? (
-            <AgentEditor key={`${agent.id}-${agent.updated_at}`} agent={agent} tree={tree} options={options} onSaved={reload} />
+            // keyed by the agent only: a reload (after a save or a lifecycle button) must not
+            // throw away what is being typed, nor the "Saved." confirmation
+            <AgentEditor key={agent.id} agent={agent} tree={tree} options={options} onSaved={reload} />
           ) : (
             !(error || treeError) && <p className="text-sm text-mist-400">Loading the settings…</p>
           )}

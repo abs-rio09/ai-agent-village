@@ -298,7 +298,21 @@ describe("Agent Profile", () => {
   });
 
   it("saves only the fields that were changed", async () => {
-    const { callsTo } = mockFetch({ ...agentRoutes(), "PATCH /api/agents/2": { body: {} } });
+    const edited: Agent = {
+      ...MINA,
+      role: "Exam Coach",
+      office_id: 1112,
+      allowed_tools: ["read_documents", "read_calendar", "create_task"],
+      updated_at: "2026-11-15T11:00:00Z",
+    };
+    const routes: Parameters<typeof mockFetch>[0] = {
+      ...agentRoutes(),
+      "PATCH /api/agents/2": () => {
+        routes["GET /api/agents"] = { body: [CENTRAL_MANAGER, edited] }; // what the server lists after the save
+        return { body: edited };
+      },
+    };
+    const { callsTo } = mockFetch(routes);
     const user = renderApp("/agents/profile?id=2");
 
     const form = await screen.findByRole("form", { name: "Agent settings" });
@@ -321,6 +335,10 @@ describe("Agent Profile", () => {
       office_id: 1112,
       allowed_tools: ["read_documents", "read_calendar", "create_task"],
     });
-    expect(main()).toBeInTheDocument();
+    // the form survives the reload: the confirmation shows and there is nothing left to save
+    expect(await within(form).findByRole("status")).toHaveTextContent("Saved.");
+    expect(save).toBeDisabled();
+    expect(within(form).getByLabelText("Role")).toHaveValue("Exam Coach");
+    expect(within(main()).getByRole("region", { name: "Agent Mina" })).toHaveTextContent("Exam Coach");
   });
 });

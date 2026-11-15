@@ -16,8 +16,9 @@
 AI Agent Village is a personal, single-user platform for managing AI agents from one web
 dashboard, running entirely on your own PC. Its structure is modelled on a Bangladeshi
 administrative village: **Village → Central Administration → Upazila → Union → Ward → Office →
-Agents**. Today the foundation and the whole organization layer work; the agents themselves come
-next (see [Status](#status)).
+Agents**. Today the foundation, the organization layer and the first agent layer work: agents are
+created from templates and a Central Manager routes requests to them. Replies still come from a
+rule-based Demo provider, not from an AI model (see [Status](#status)).
 
 ## Status
 
@@ -27,15 +28,15 @@ Built one milestone at a time. Each milestone is tested before the next one star
 | --- | --- | --- |
 | **M1** | Foundation: `./village` CLI, backend core, login, first-run wizard, app shell | ✅ Done, accepted |
 | **M2** | Organization: Upazila / Union / Ward / Office, templates, standard structure, tree view | ✅ Done, tested (owner sign-off on the live install pending) |
-| **M3** | Agents and AI model settings | ⏳ Planned |
-| **M4** | Tasks, approvals, agent communication | ⏳ Planned |
+| **M3** | Agents and tasks: agent registry and templates, Demo provider, Central Manager routing, task queue, delegation | ✅ Built, tested (owner sign-off on the live install pending) |
+| **M4** | Tool and permission enforcement, approvals, agent chat, AI model settings, communication history | ⏳ Planned |
 | **M5** | Interactive village map | ⏳ Planned |
 | **M6** | Memory, knowledge and documents | ⏳ Planned |
 | **M7** | Commerce and integrations | ⏳ Planned |
 | **M8** | Reports, settings, backup and restore, system health | ⏳ Planned |
 | **M9** | Background automation and release hardening | ⏳ Planned |
 
-✅ done · 🚧 in progress · ⏳ planned. Nothing is in progress right now. The split of M3–M9 is
+✅ done · 🚧 in progress · ⏳ planned. Nothing is in progress right now. The split of M4–M9 is
 provisional and may change. [`PROGRESS.md`](PROGRESS.md) is the detailed, honest log, including
 known issues.
 
@@ -47,7 +48,7 @@ known issues.
 - **First-run wizard** in the browser (6 steps) that creates the village and the admin account in
   one database transaction.
 - **Login** with argon2id password hashing, server-side sessions and a login lockout.
-- **Control-center UI**: dark dashboard with all 22 pages of the spec in the sidebar. The 18 pages
+- **Control-center UI**: dark dashboard with all 22 pages of the spec in the sidebar. The 15 pages
   that are not built yet say "Coming in M‹n›" and show no data.
 - **No fake numbers**: everything on screen comes from the backend.
 
@@ -63,8 +64,24 @@ known issues.
   buttons and links as the accessible alternative to the future map.
 - **Live counts** of Upazilas, Unions, Wards and Offices on the overview.
 
-> **Not there yet:** there are no agents, tasks or AI calls. The wizard stores your AI mode
-> (Demo, Ollama or Anthropic), but no AI provider has been implemented or contacted so far.
+**Agents and tasks (M3)**
+
+- **Agent registry**: 15 agent templates (Study Assistant, Tutor, Accountant, Repair Technician
+  and more). A 5-step wizard creates an agent in a Ward's Office; it can be edited, paused,
+  disabled, and deleted only while it has no task history.
+- **Central Manager**: one protected agent that classifies a request by keywords, picks the
+  matching Upazila and an active agent there, delegates a child task and writes the final report.
+  It never does the work itself.
+- **Task Center**: send a request, watch it move through QUEUED → RUNNING → SUCCEEDED/FAILED, see
+  the routing result, the child tasks, the agent-to-agent messages and the output, or cancel it.
+- **Task queue in SQLite**: one background worker inside the app; tasks survive a restart, and a
+  task interrupted by a crash is queued again.
+- **Demo provider**: every reply starts with "[Demo]" and is a fixed outline for the agent's role.
+  It needs no API key and makes no network call.
+
+> **Not there yet:** no AI model is connected. Routing is keyword matching, replies are Demo text,
+> and the Ollama and Anthropic providers are not implemented or contacted. Tools and permissions
+> are stored on an agent but not enforced, and no tool can run yet (M4).
 
 ## Screenshots
 
@@ -122,8 +139,8 @@ Key design decisions:
 - **Default-deny API.** Every `/api` route needs a session unless it is on a four-entry public
   allowlist. A test enumerates all routes, so a new unprotected route fails the build.
 - **Secrets only in `data/.env`.** API keys never go into the database, the logs or an API response.
-- **Works with no API key.** The app is fully usable without any AI credentials; the planned Demo
-  provider keeps it that way once agents arrive.
+- **Works with no API key.** The app is fully usable without any AI credentials; the Demo
+  provider answers agent tasks without a key or a network call.
 
 ## Tech stack
 
@@ -177,8 +194,8 @@ Port already taken? `VILLAGE_PORT=8010 ./village start`.
   resets when the server restarts).
 - **Keys stay out of the database and logs**: an API key is written only to `data/.env`
   (mode 600) and is never returned by the API.
-- **No agent shell access, by design**: agents (M3+) will work through a registry of explicit
-  tools with approvals, never arbitrary shell or filesystem access.
+- **No agent shell access, by design**: the tool catalogue an agent can be given has no shell,
+  terminal or free filesystem tool. Tools are stored only for now; enforcement and approvals are M4.
 
 This is a single-user tool for your own machine. It is served over plain HTTP on localhost and is
 not meant to be exposed to a network.
@@ -191,8 +208,8 @@ cd frontend && npm test              # frontend (Vitest, runs once)
 cd frontend && npm run build         # type-check + production build
 ```
 
-Current results (M2): **pytest 121 passed, 1 skipped** (the skipped test needs `shellcheck`;
-with it installed, 122 pass) and **Vitest 51 passed**. Tests never touch the real database or
+Current results (M3): **pytest 259 passed, 1 skipped** (the skipped test needs `shellcheck`)
+and **Vitest 74 passed**. Tests never touch the real database or
 `data/.env`. The GitHub Actions workflow in [`ci.yml`](.github/workflows/ci.yml) runs both suites
 and the build on every push and pull request.
 
@@ -203,7 +220,7 @@ ai-agent-village/
 ├── village              # Bash CLI: setup, start, stop, restart, status, logs, doctor
 ├── backend/
 │   ├── app/             # FastAPI app: main, config, db, models, security, api/ routers
-│   ├── alembic/         # hand-written migrations (0001–0003)
+│   ├── alembic/         # hand-written migrations (0001–0005)
 │   └── tests/           # pytest; every test gets a temp DB and a temp .env
 ├── frontend/
 │   └── src/             # React app: pages/, components/, typed API client, tests
@@ -220,8 +237,8 @@ ai-agent-village/
 
 All of this is **planned, not built**. The order and grouping may change.
 
-- **M3**: agents created from templates and assigned to offices; AI providers (Demo, Ollama, Anthropic).
-- **M4**: tasks routed through a Central Manager, approval requests, agent-to-agent messages.
+- **M4**: tool registry with enforced tools and permissions, approval requests, agent chat, real AI
+  providers (Ollama, Anthropic) and their settings, a communication history page.
 - **M5**: interactive village map with agent characters; the tree view stays as the accessible alternative.
 - **M6**: village, Upazila and agent memory; local document upload and search.
 - **M7**: products, inventory and orders; Messenger integration in a sandbox mode.

@@ -362,11 +362,29 @@ was not touched and still runs the older code (see "How to verify M3 on the live
   logged in, created "Mina" (Study Assistant) with the wizard in Study Upazila › Academic
   Management › Ward 1, sent "help me prepare for my exam" → SUCCEEDED, routed to Study Upazila,
   child task SUCCEEDED with a "[Demo]" reply, parent report, two messages, "up to date".
-- Not checked in the browser: pause/disable/delete buttons, editing a profile, the Upazila filter,
-  Cancel, the failure display and small-screen layout (covered by Vitest only, layout not at all).
-  The session ended on a usage limit right after the browser check, so no further polish was done.
 - No `docs/02-DECISIONS` file exists in the repo; D-M3-02 and the routing rules were taken from
-  the task brief. README was not updated for M3.
+  the task brief.
+
+### M3 follow-up — remaining browser checks, two fixes, README (2026-11-16)
+- Second browser pass on the scratch server (same scratch DB, restarted first — agents, tasks and
+  the login session were still there): Agent Management list; Upazila filter ("1 agent in Business
+  Upazila"); profile Pause → paused/offline → a request then FAILED with "…has no active agent.
+  (1 agent there is paused or disabled.)" shown under Error → Activate; edit role + Ward and save;
+  Delete disabled for an agent with history; an agent without history deleted with its typed name.
+  No browser console errors, no errors in the server log. Server stopped afterwards.
+- Fixed, both found in that pass:
+  - the profile's "Saved." confirmation never appeared (the settings form was recreated when the
+    agent reloaded after a save); the form is now kept, and a Vitest assertion covers it;
+  - at 420 px the agent cards overflowed sideways; the card grid now shrinks. Agent Profile,
+    New agent and Task Center had no horizontal overflow at 420 px.
+- README updated for M3 (status table, features, test counts, roadmap). Its Mermaid diagram and
+  the screenshots were **not** changed: there is no M3 screenshot and the task worker is not in
+  the diagram.
+- Still not checked in a browser: the Cancel button (the Demo flow finishes in under a second,
+  so there was nothing to cancel by hand; it is covered by pytest, including a cancel in the
+  middle of the work, and by Vitest), and the drawer/other pages on small screens.
+- Tests after the fixes: Vitest **74 passed**, pytest **259 passed, 1 skipped**, type-check and
+  scratch build ok.
 
 ## How to verify M3 on the live village
 `./village stop && ./village setup && ./village start` (setup migrates to 0005 and rebuilds the
@@ -449,8 +467,9 @@ frontend), log in, then:
   harmless today.
 
 ## Last session
-- DEV-M3 Parts A, B and C: three commits, nothing pushed. Tests pass (pytest 259 + 1 skip,
-  Vitest 74). The live village was not restarted, migrated or rebuilt.
+- DEV-M3 Parts A, B and C plus one follow-up commit (browser checks, two UI fixes, README);
+  nothing pushed. Tests pass (pytest 259 + 1 skip, Vitest 74). The live village was not
+  restarted, migrated or rebuilt.
 - Waiting for: the owner's confirmation of M2 and M3, the milestone for Agent Chat and AI Model
   Settings, the ward names for the Business/Career/Research/Project/Personal templates, the
   Node 20 vs 22 decision, and the first CI run on GitHub.
