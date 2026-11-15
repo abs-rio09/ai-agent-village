@@ -14,8 +14,9 @@ migration or test was changed. The CI workflow has **not run on GitHub yet** (no
 
 **DEV-M2-FIX-01 — max 9 wards per Union**: done and committed (see "M2 fix: max 9 wards").
 
-Milestone **M3 — Agents & Tasks**: in progress. Part A (agent registry backend) is built and
-committed; see the M3 sections below for what exists.
+Milestone **M3 — Agents & Tasks**: in progress. Parts A (agent registry backend) and B (tasks,
+routing, delegation backend) are built and committed; Part C (the pages) is not built yet. See
+the M3 sections below for what exists.
 
 ## Done
 ### M1 Part A — scaffold, backend core, `./village` CLI
@@ -277,8 +278,8 @@ committed; see the M3 sections below for what exists.
   and are disabled (`agents_disabled` in the delete response). This replaces the `TODO(M3)` notes
   in `org.py` that planned a 409 instead. An agent without an office cannot be activated (409)
   until it is given a new office.
-- Delete rule: in Part A no agent can have history yet (tasks arrive in Part B), so the
-  "has history → 409, disable instead" branch exists but **cannot trigger and is not tested yet**.
+- Delete rule: in Part A no agent could have history yet; Part B made the "has history → 409,
+  disable instead" rule real and tested it.
 - Providers: `backend/app/providers/base.py` (`Provider`: `name`, `is_configured()`,
   `reply(agent, task) -> str`), `providers/demo.py` (fixed three-step outline per template, every
   reply starts with "[Demo]" and says no AI model was used; no network) and a registry that returns
@@ -291,6 +292,51 @@ committed; see the M3 sections below for what exists.
   (0003→0004→0003→0004 on a database with real M2 rows, seeding three times, CRUD, filters,
   lifecycle, Central Manager protection, office deletion at ward/union/upazila level, Demo
   provider with sockets blocked, 401 on all 10 routes). No frontend change in this part.
+
+### M3 Part B — tasks, Central Manager routing, delegation (backend, 2026-11-15)
+- Migration `0005_tasks.py` (schema_version 5): `task` (every SPEC §8B field, plus `depth` and
+  `updated_at`) and `agent_message` (SPEC §8C). Nothing is seeded. CHECK constraints on status,
+  priority (`low|normal|high`) and message type (`delegation|result`).
+- Status rules: `backend/app/task_status.py` holds the 7 statuses and the one transition table.
+  Every status change in the app goes through `task_runner.move_task`, which checks that table
+  and only changes a task that still has the status the caller saw (so a cancel and the worker
+  cannot overwrite each other). `WAITING_APPROVAL` exists in the table but nothing uses it (M4).
+- Task runner (`backend/app/task_runner.py`): ONE daemon thread, started and stopped by the
+  FastAPI lifespan, polling SQLite every 0.5 s, one step at a time (route a request / let an agent
+  answer / collect the children into a report). `VILLAGE_TASK_WORKER=0` switches it off (the
+  tests do that and run the queue themselves). On start, tasks left RUNNING go back to QUEUED with
+  "Interrupted by a restart of the village; queued again." in `error`, and a re-queued request
+  that already has child tasks is not delegated a second time. Runtime state: an agent is
+  `working` while its task runs and `idle` after; the Central Manager is `waiting` while it waits
+  for child tasks.
+- Central Manager (`backend/app/central_manager.py`, keyword table in
+  `backend/app/routing_keywords.py`): the request text is matched against the keywords of each
+  Upazila's template plus the words of the Upazila's own name (Upazilas without a template: their
+  name and Union names). Most hits wins. Then the ACTIVE agent of that Upazila whose role,
+  description, Ward and Union share the most words with the request gets a child task (else the
+  first active one). When the children are done the parent gets a report that starts with
+  "[Demo] Central Manager report". No Upazila matched / no active agent → the parent is FAILED
+  with a readable reason. The Central Manager never calls a provider for itself. Delegation depth
+  is limited to 3; M3's own flow only ever uses depth 1 (the deeper levels are tested by calling
+  `delegate` directly). **This is keyword matching, not understanding** — a request with no
+  keyword fails, and a request with misleading words goes to the wrong Upazila.
+- API (session required): `POST /api/tasks` (`title`, optional `description`, `priority`),
+  `GET /api/tasks` (`status`, `agent_id`, `top_level`, `limit`), `GET /api/tasks/{id}` (children
+  + messages of the whole tree), `POST /api/tasks/{id}/cancel` (cancels unfinished children too;
+  409 when already finished).
+- Agents: an agent with any task or message has `has_history: true` and its delete answers 409
+  "…Disable it instead — its history is kept."
+- Tests: pytest **259 passed, 1 skipped** (shellcheck); 94 new in `tests/test_m3_tasks.py`
+  (49 of them are the transition table): 0003→0004→0005→0004→0003→head on a database with real
+  rows, routing per Upazila (pure and through the API), failure reasons, paused/disabled agents,
+  provider failure, depth limit, cancel (also while the agent is working), crash recovery, the
+  real worker thread inside the app, priority, history, 401 on all 4 routes.
+- Checked on a real server (scratch DB + `.env`, port 8013, started with `python -m app.main`,
+  now stopped): Study structure generated, Study Assistant "Mina" created in Ward 1, "help me
+  prepare for my exam" → child SUCCEEDED with a "[Demo]" reply → parent SUCCEEDED with the report,
+  two messages; "hello there" → FAILED with the reason. No error in the server log.
+- Not done / limits: one agent per request (no multi-agent coordination); no retry of failed
+  tasks; no task deletion or clean-up of old tasks; providers other than Demo do not exist.
 
 ## How to verify M2 on the live village
 `./village stop && ./village setup && ./village start`, log in, then:

@@ -20,7 +20,7 @@ from sqlalchemy.orm import Session
 from app.agent_catalog import PERMISSION_KEYS, PERMISSIONS, TOOL_KEYS, TOOLS, CatalogItem
 from app.api.fields import Description, IconKey, Name
 from app.db import as_utc, get_session, utcnow
-from app.models import Agent, AgentTemplate, Office, UnionUnit, Upazila, Ward
+from app.models import Agent, AgentMessage, AgentTemplate, Office, Task, UnionUnit, Upazila, Ward
 from app.providers import provider_names
 
 router = APIRouter(tags=["agents"])
@@ -205,12 +205,14 @@ def _template_out(row: AgentTemplate) -> AgentTemplateOut:
 
 
 def agents_with_history(db: Session, agent_ids: list[int]) -> set[int]:
-    """The agents among `agent_ids` that have history and therefore cannot be deleted.
-
-    M3 Part A has no tasks or messages yet, so no agent has history. Part B fills this in.
-    """
-    del db, agent_ids
-    return set()
+    """The agents among `agent_ids` that have history — any task or any message — and therefore
+    cannot be deleted (three small queries, whatever the number of agents)."""
+    if not agent_ids:
+        return set()
+    found: set[int] = set()
+    for column in (Task.assigned_agent_id, AgentMessage.sender_agent_id, AgentMessage.receiver_agent_id):
+        found |= set(db.execute(select(column).where(column.in_(agent_ids)).distinct()).scalars())
+    return found
 
 
 def location_of(office: Office, ward: Ward | None, union: UnionUnit | None, upazila: Upazila | None) -> AgentLocation:

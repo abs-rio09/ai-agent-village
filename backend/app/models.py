@@ -243,5 +243,61 @@ class Agent(Timestamps, Base):
     disabled_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 
+# ---------------------------------------------------------------- tasks + messages (M3)
+#
+# A task is one row; delegation creates child rows (parent_task_id, depth). Every delegation
+# and every result is also written as an agent_message. Statuses and their valid changes live
+# in app/task_status.py.
+
+
+class Task(Timestamps, Base):
+    __tablename__ = "task"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('QUEUED', 'ASSIGNED', 'RUNNING', 'WAITING_APPROVAL', 'SUCCEEDED', 'FAILED', 'CANCELLED')",
+            name="ck_task_status",
+        ),
+        CheckConstraint("priority IN ('low', 'normal', 'high')", name="ck_task_priority"),
+        CheckConstraint("depth >= 0", name="ck_task_depth"),
+        Index("ix_task_status", "status"),
+        Index("ix_task_parent_task_id", "parent_task_id"),
+        Index("ix_task_assigned_agent_id", "assigned_agent_id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    title: Mapped[str] = mapped_column(String(200), nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    # A username for the Chairman's tasks, "agent:<id>" for tasks an agent delegated.
+    created_by: Mapped[str] = mapped_column(String(80), nullable=False)
+    assigned_agent_id: Mapped[int | None] = mapped_column(ForeignKey("agent.id"), nullable=True)
+    parent_task_id: Mapped[int | None] = mapped_column(ForeignKey("task.id", ondelete="CASCADE"), nullable=True)
+    depth: Mapped[int] = mapped_column(Integer, nullable=False, default=0)  # 0 = sent by the Chairman
+    priority: Mapped[str] = mapped_column(String(8), nullable=False, default="normal")
+    input: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    output: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="QUEUED")
+    started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class AgentMessage(Base):
+    """Structured agent-to-agent communication (docs/SPEC.md §8C)."""
+
+    __tablename__ = "agent_message"
+    __table_args__ = (
+        CheckConstraint("type IN ('delegation', 'result')", name="ck_agent_message_type"),
+        Index("ix_agent_message_task_id", "task_id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    sender_agent_id: Mapped[int] = mapped_column(ForeignKey("agent.id"), nullable=False)
+    receiver_agent_id: Mapped[int] = mapped_column(ForeignKey("agent.id"), nullable=False)
+    task_id: Mapped[int] = mapped_column(ForeignKey("task.id", ondelete="CASCADE"), nullable=False)
+    type: Mapped[str] = mapped_column(String(20), nullable=False)
+    payload: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utcnow)
+
+
 def get_meta(session: Session, key: str) -> str | None:
     return session.execute(select(AppMeta.value).where(AppMeta.key == key)).scalar_one_or_none()

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from urllib.parse import urlsplit
@@ -9,12 +10,14 @@ from urllib.parse import urlsplit
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from sqlalchemy import inspect
 
 from app import __version__
 from app.api import api_router
 from app.config import get_settings
 from app.db import get_engine
 from app.seed import seed_if_migrated
+from app.task_runner import TaskWorker
 
 _ALLOWED_HOSTNAMES = {"127.0.0.1", "localhost", "[::1]"}
 _SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
@@ -52,10 +55,24 @@ def _hostname(host_header: str) -> str:
 @asynccontextmanager
 async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
     settings = get_settings()  # fail fast on invalid configuration (e.g. a non-loopback host)
+    worker: TaskWorker | None = None
     if settings.db_file.exists():  # never create the database here: that is `./village setup`
+        engine = get_engine()
         # Idempotent: puts back a missing agent template or a missing Central Manager.
-        seed_if_migrated(get_engine())
-    yield
+        seed_if_migrated(engine)
+        if settings.task_worker:
+            if inspect(engine).has_table("task"):
+                worker = TaskWorker()
+                worker.start()  # first queues tasks again that a crash left RUNNING
+            else:
+                logging.getLogger("village.tasks").warning(
+                    "the task worker was not started: the database has no task table (run ./village setup)"
+                )
+    try:
+        yield
+    finally:
+        if worker is not None:
+            worker.stop()
 
 
 def create_app() -> FastAPI:

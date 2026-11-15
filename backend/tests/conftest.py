@@ -36,6 +36,9 @@ def env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Path]:
     monkeypatch.setenv("VILLAGE_ENV_FILE", str(env_file))
     monkeypatch.setenv("VILLAGE_DB_PATH", str(tmp_path / "test.db"))
     monkeypatch.setenv("VILLAGE_FRONTEND_DIST", str(tmp_path / "dist"))
+    # No background task worker: tests run the queue themselves (app.task_runner.run_once / drain),
+    # so nothing depends on timing. test_m3_tasks.py switches it on for the tests that need it.
+    monkeypatch.setenv("VILLAGE_TASK_WORKER", "0")
     get_settings.cache_clear()
     reset_engine()
     assert get_settings().db_file != ROOT_DIR / "data" / "village.db"

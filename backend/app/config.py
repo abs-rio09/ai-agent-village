@@ -44,6 +44,8 @@ class Settings(BaseSettings):
     frontend_dist: Path = Path("frontend/dist")
     secret_key: SecretStr
     anthropic_api_key: SecretStr | None = None
+    # The in-process task runner. Tests switch it off and drive the queue themselves.
+    task_worker: bool = True
 
     @field_validator("host")
     @classmethod
