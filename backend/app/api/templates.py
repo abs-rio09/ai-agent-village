@@ -8,13 +8,14 @@ exist are copies and are never modified by a template edit.
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, ConfigDict
-from sqlalchemy import select
+from pydantic import BaseModel, ConfigDict, Field
+from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.api.fields import Description, IconKey, Name, Responsibility
 from app.db import get_session
+from app.limits import MAX_WARDS_PER_UNION
 from app.models import UnionTemplate, UpazilaTemplate, WardTemplate
 
 router = APIRouter(prefix="/templates", tags=["templates"])
@@ -41,6 +42,7 @@ class TemplateOut(BaseModel):
     sort_order: int
     unions: list[UnionTemplateOut]
     wards: list[WardTemplateOut]
+    max_wards: int = MAX_WARDS_PER_UNION  # a template's ward set may not be longer than this
 
 
 class TemplatePatch(BaseModel):
@@ -62,6 +64,21 @@ class WardTemplatePatch(BaseModel):
 
     name: Name | None = None
     responsibility: Responsibility | None = None
+
+
+class WardTemplateIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: Name
+    responsibility: Responsibility = ""
+
+
+class WardSetPut(BaseModel):
+    """The whole default ward set of a template, in order; more than the limit is a 422."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    wards: list[WardTemplateIn] = Field(min_length=1, max_length=MAX_WARDS_PER_UNION)
 
 
 def _union_out(row: UnionTemplate) -> UnionTemplateOut:
@@ -126,6 +143,30 @@ def update_template(key: str, body: TemplatePatch, db: Session = Depends(get_ses
     if body.icon is not None:
         template.icon = body.icon
     _commit(db, f"Another Upazila template is already named '{body.name}'")
+    return _load(db, key)[0]
+
+
+@router.put("/{key}/wards", response_model=TemplateOut)
+def replace_ward_set(key: str, body: WardSetPut, db: Session = Depends(get_session)) -> TemplateOut:
+    """Save a template's ward names in order (1..n, at most MAX_WARDS_PER_UNION). Rows that keep
+    their number are updated in place (same id); extra rows are added, missing ones removed.
+    Only the template changes — existing Unions and Wards are copies and stay as they are."""
+    if db.get(UpazilaTemplate, key) is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Upazila template not found")
+    current = {
+        row.number: row
+        for row in db.execute(select(WardTemplate).where(WardTemplate.upazila_template_key == key)).scalars()
+    }
+    for number, ward in enumerate(body.wards, start=1):
+        row = current.get(number)
+        if row is None:
+            db.add(WardTemplate(upazila_template_key=key, number=number, name=ward.name, responsibility=ward.responsibility))
+        else:
+            row.name, row.responsibility = ward.name, ward.responsibility
+    db.execute(
+        delete(WardTemplate).where(WardTemplate.upazila_template_key == key, WardTemplate.number > len(body.wards))
+    )
+    _commit(db, "The template changed while it was being saved; try again")
     return _load(db, key)[0]
 
 

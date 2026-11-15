@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 
 from app.api.fields import Description, IconKey, Name, Responsibility
 from app.db import get_session
+from app.limits import MAX_WARDS_PER_UNION
 from app.models import Office, UnionTemplate, UnionUnit, Upazila, UpazilaTemplate, Village, Ward, WardTemplate
 
 router = APIRouter(tags=["organization"])
@@ -187,6 +188,7 @@ class OrgTree(BaseModel):
     central_office: OfficeOut | None
     counts: UpazilaCounts  # ward offices only; the central office is listed separately
     upazila_count: int
+    max_wards_per_union: int = MAX_WARDS_PER_UNION
     upazilas: list[TreeUpazila]
 
 
@@ -472,6 +474,7 @@ def _generation_plan(db: Session, upazila: Upazila) -> tuple[list[UnionTemplate]
             select(WardTemplate)
             .where(WardTemplate.upazila_template_key == upazila.template_key)
             .order_by(WardTemplate.number)
+            .limit(MAX_WARDS_PER_UNION)  # a generated Union never gets more than the limit
         )
         .scalars()
         .all()
@@ -623,11 +626,17 @@ def list_wards(union_id: int, db: Session = Depends(get_session)) -> list[WardOu
 def create_ward(
     union_id: int, body: WardCreate | None = Body(default=None), db: Session = Depends(get_session)
 ) -> WardOut:
-    """Add the next ward number to a Union, together with the ward's office."""
+    """Add the next ward number to a Union, together with the ward's office (409 at the limit)."""
     body = body or WardCreate()
     if not _lock_for_write(db, UnionUnit, union_id):
         db.rollback()
         raise _not_found("Union")
+    existing = db.execute(select(func.count()).select_from(Ward).where(Ward.union_id == union_id)).scalar_one()
+    if existing >= MAX_WARDS_PER_UNION:
+        db.rollback()
+        raise _conflict(
+            f"A Union can have at most {MAX_WARDS_PER_UNION} wards. Delete a ward before adding another."
+        )
     number = _next_sort_order(db, Ward.number, Ward.union_id == union_id)
     ward = Ward(
         union_id=union_id, number=number, name=body.name or f"Ward {number}", responsibility=body.responsibility

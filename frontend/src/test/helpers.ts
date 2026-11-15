@@ -91,6 +91,7 @@ export const TEMPLATES: Template[] = [
     sort_order: 1,
     unions: STUDY_UNIONS.map((name, index) => ({ id: index + 1, name, sort_order: index + 1 })),
     wards: STUDY_WARDS.map((name, index) => ({ id: index + 1, number: index + 1, name, responsibility: name })),
+    max_wards: 9,
   },
   {
     key: "business",
@@ -100,6 +101,7 @@ export const TEMPLATES: Template[] = [
     sort_order: 2,
     unions: [{ id: 6, name: "Business Strategy", sort_order: 1 }],
     wards: [{ id: 10, number: 1, name: "Ward 1", responsibility: "" }],
+    max_wards: 9,
   },
 ];
 
@@ -140,6 +142,15 @@ export const STUDY_FULL: TreeUpazila = {
   unions: STUDY_UNIONS.map((name, index) => studyUnion(index, name)),
 };
 
+/** STUDY_FULL, but its first Union (id 11) has only 8 wards (Ward 9 was deleted). */
+export const STUDY_EIGHT_WARDS: TreeUpazila = {
+  ...STUDY_FULL,
+  counts: { unions: 5, wards: 44, offices: 44 },
+  unions: STUDY_FULL.unions.map((union, index) =>
+    index === 0 ? { ...union, counts: { wards: 8, offices: 8 }, wards: union.wards.slice(0, 8) } : union,
+  ),
+};
+
 export const GARDEN: TreeUpazila = {
   id: 2,
   name: "Garden",
@@ -160,6 +171,7 @@ export function makeTree(upazilas: TreeUpazila[]): OrgTree {
       offices: upazilas.reduce((sum, upazila) => sum + upazila.counts.offices, 0),
     },
     upazila_count: upazilas.length,
+    max_wards_per_union: 9,
     upazilas,
   };
 }

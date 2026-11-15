@@ -106,6 +106,8 @@ export interface OrgTree {
   central_office: Office | null;
   counts: UpazilaCounts;
   upazila_count: number;
+  /** The most Wards one Union may hold (backend MAX_WARDS_PER_UNION). */
+  max_wards_per_union: number;
   upazilas: TreeUpazila[];
 }
 
@@ -130,6 +132,8 @@ export interface Template {
   sort_order: number;
   unions: UnionTemplate[];
   wards: WardTemplate[];
+  /** The most ward names a template may hold (backend MAX_WARDS_PER_UNION). */
+  max_wards: number;
 }
 
 export interface GenerateResult {
@@ -222,7 +226,7 @@ interface RequestOptions {
   skipUnauthorizedHandler?: boolean;
 }
 
-async function request<T>(method: "GET" | "POST" | "PATCH" | "DELETE", path: string, body?: unknown, options: RequestOptions = {}): Promise<T> {
+async function request<T>(method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE", path: string, body?: unknown, options: RequestOptions = {}): Promise<T> {
   let response: Response;
   try {
     response = await fetch(path, {
@@ -292,6 +296,8 @@ export const api = {
     request<Template>("PATCH", `/api/templates/${encodeURIComponent(key)}`, patch),
   updateUnionTemplate: (id: number, name: string) =>
     request<UnionTemplate>("PATCH", `/api/templates/unions/${id}`, { name }),
+  replaceWardTemplates: (key: string, wards: { name: string; responsibility: string }[]) =>
+    request<Template>("PUT", `/api/templates/${encodeURIComponent(key)}/wards`, { wards }),
   updateWardTemplate: (id: number, patch: { name?: string; responsibility?: string }) =>
     request<WardTemplate>("PATCH", `/api/templates/wards/${id}`, patch),
 };

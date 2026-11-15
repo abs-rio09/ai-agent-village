@@ -10,6 +10,7 @@ import {
   GARDEN,
   HEALTH,
   STATS,
+  STUDY_EIGHT_WARDS,
   STUDY_EMPTY,
   STUDY_FULL,
   STUDY_UNIONS,
@@ -449,8 +450,8 @@ describe("Ward & Office Management", () => {
 
   it("adds the next ward and deletes one after the name is typed", async () => {
     const { callsTo } = mockFetch({
-      ...orgRoutes([STUDY_FULL]),
-      "POST /api/unions/11/wards": { status: 201, body: { id: 999, number: 10, name: "Ward 10", responsibility: "", office: null } },
+      ...orgRoutes([STUDY_EIGHT_WARDS]),
+      "POST /api/unions/11/wards": { status: 201, body: { id: 999, number: 9, name: "Ward 9", responsibility: "", office: null } },
       "DELETE /api/wards/112": { body: { deleted: true, upazilas: 0, unions: 0, wards: 1, offices: 1 } },
     });
     const user = renderApp("/wards?union=11");
@@ -468,6 +469,46 @@ describe("Ward & Office Management", () => {
     await user.click(confirm);
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     expect(callsTo("DELETE /api/wards/112")[0]!.json).toEqual({ confirm_name: "Assignment & Deadline" });
+  });
+
+  it("hides “Add ward” at the 9-ward limit and shows a note instead", async () => {
+    mockFetch(orgRoutes([STUDY_FULL]));
+    renderApp("/wards?union=11");
+
+    expect(await screen.findByRole("group", { name: "Wards of Academic Management" })).toBeInTheDocument();
+    expect(within(main()).getAllByRole("article")).toHaveLength(9);
+    expect(screen.queryByRole("button", { name: "Add ward" })).not.toBeInTheDocument();
+    expect(screen.getByRole("note")).toHaveTextContent("Maximum 9 wards per Union");
+  });
+
+  it("shows “Add ward” at 8 wards, without the note", async () => {
+    mockFetch(orgRoutes([STUDY_EIGHT_WARDS]));
+    renderApp("/wards?union=11");
+
+    expect(await screen.findByRole("button", { name: "Add ward" })).toBeInTheDocument();
+    expect(within(main()).getAllByRole("article")).toHaveLength(8);
+    expect(screen.queryByText("Maximum 9 wards per Union")).not.toBeInTheDocument();
+  });
+
+  it("brings “Add ward” back after a ward is deleted from a full Union", async () => {
+    const routes: Parameters<typeof mockFetch>[0] = {
+      ...orgRoutes([STUDY_FULL]),
+      "DELETE /api/wards/119": { body: { deleted: true, upazilas: 0, unions: 0, wards: 1, offices: 1 } },
+    };
+    mockFetch(routes); // reads the routes object on every call, so it can be changed below
+    const user = renderApp("/wards?union=11");
+
+    await screen.findByRole("group", { name: "Wards of Academic Management" });
+    expect(screen.queryByRole("button", { name: "Add ward" })).not.toBeInTheDocument();
+    routes["GET /api/org/tree"] = { body: makeTree([STUDY_EIGHT_WARDS]) }; // what the server returns after the delete
+
+    await user.click(screen.getByRole("button", { name: "Delete ward 9" }));
+    const dialog = screen.getByRole("dialog", { name: "Delete Ward" });
+    await user.type(within(dialog).getByLabelText(/Type the name to confirm/), "Daily Academic Reporting");
+    await user.click(within(dialog).getByRole("button", { name: "Delete Ward" }));
+
+    expect(await screen.findByRole("button", { name: "Add ward" })).toBeInTheDocument();
+    expect(screen.queryByText("Maximum 9 wards per Union")).not.toBeInTheDocument();
   });
 
   it("renames the Central Administration office", async () => {
@@ -515,6 +556,48 @@ describe("Templates", () => {
     expect(callsTo("PATCH /api/templates/wards/1")[0]!.json).toEqual({ name: "Class Routine", responsibility: "Weekly timetable" });
     expect(callsTo("GET /api/templates")).toHaveLength(2); // reloaded from the server
     expect(screen.getByText(/future/)).toBeInTheDocument(); // the "future generation only" note
+  });
+
+  it("blocks a 10th ward name: the add button is replaced by a note at 9", async () => {
+    mockFetch(orgRoutes([]));
+    const user = renderApp("/upazilas?tab=templates");
+
+    const section = await screen.findByRole("region", { name: "Template Study Upazila" });
+    await user.click(within(section).getByRole("button", { name: /Study Upazila/ }));
+    expect(within(section).getByLabelText("Ward 9 name")).toBeInTheDocument();
+    expect(within(section).queryByRole("button", { name: "Add ward name" })).not.toBeInTheDocument();
+    expect(within(section).getByRole("note")).toHaveTextContent("Maximum 9 wards per Union");
+
+    await user.click(within(section).getByRole("button", { name: "Remove ward 9" }));
+    expect(within(section).queryByLabelText("Ward 9 name")).not.toBeInTheDocument();
+    await user.click(within(section).getByRole("button", { name: "Add ward name" }));
+    expect(within(section).getByLabelText("Ward 9 name")).toHaveValue("");
+    expect(within(section).queryByRole("button", { name: "Add ward name" })).not.toBeInTheDocument();
+    expect(within(section).queryByLabelText("Ward 10 name")).not.toBeInTheDocument();
+  });
+
+  it("saves an added ward name as the whole ward set", async () => {
+    const saved = { ...TEMPLATES[1]!, wards: [...TEMPLATES[1]!.wards, { id: 11, number: 2, name: "Pricing", responsibility: "" }] };
+    const { callsTo } = mockFetch({ ...orgRoutes([]), "PUT /api/templates/business/wards": { body: saved } });
+    const user = renderApp("/upazilas?tab=templates");
+
+    const section = await screen.findByRole("region", { name: "Template Business Upazila" });
+    await user.click(within(section).getByRole("button", { name: /Business Upazila/ }));
+    expect(within(section).getByRole("button", { name: "Remove ward 1" })).toBeDisabled(); // at least one ward
+    await user.click(within(section).getByRole("button", { name: "Add ward name" }));
+    await user.click(within(section).getByRole("button", { name: "Save template" }));
+    expect(within(section).getByRole("alert")).toHaveTextContent("Every name must be filled in.");
+    expect(callsTo("PUT /api/templates/business/wards")).toHaveLength(0);
+
+    await user.type(within(section).getByLabelText("Ward 2 name"), " Pricing ");
+    await user.click(within(section).getByRole("button", { name: "Save template" }));
+    await waitFor(() => expect(callsTo("PUT /api/templates/business/wards")).toHaveLength(1));
+    expect(callsTo("PUT /api/templates/business/wards")[0]!.json).toEqual({
+      wards: [
+        { name: "Ward 1", responsibility: "" },
+        { name: "Pricing", responsibility: "" },
+      ],
+    });
   });
 
   it("refuses an empty name and shows a server error", async () => {

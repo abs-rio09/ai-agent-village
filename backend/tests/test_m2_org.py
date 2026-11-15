@@ -649,6 +649,7 @@ def test_org_tree_and_lists_do_not_run_a_query_per_node(api: TestClient, stateme
 NEW_ROUTES = {
     ("GET", "/api/templates"),
     ("PATCH", "/api/templates/{key}"),
+    ("PUT", "/api/templates/{key}/wards"),  # DEV-M2-FIX-01
     ("PATCH", "/api/templates/unions/{union_template_id}"),
     ("PATCH", "/api/templates/wards/{ward_template_id}"),
     ("GET", "/api/upazilas"),

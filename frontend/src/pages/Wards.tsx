@@ -331,11 +331,17 @@ export default function Wards() {
         title="Ward & Office Management"
         intro="Every Union is divided into numbered Wards, and every Ward has one Office. Pick a Union to rename its Wards, set their responsibilities and name their Offices."
         actions={
-          union && (
+          union &&
+          tree &&
+          (union.wards.length >= tree.max_wards_per_union ? (
+            <p role="note" className="text-sm text-mist-400">
+              Maximum {tree.max_wards_per_union} wards per Union
+            </p>
+          ) : (
             <Button onClick={() => void addWard()} busy={addBusy} icon={<Plus size={16} aria-hidden="true" />}>
               Add ward
             </Button>
-          )
+          ))
         }
       />
       {error && <ErrorBanner>{error}</ErrorBanner>}

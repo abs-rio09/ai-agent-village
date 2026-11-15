@@ -12,6 +12,8 @@ confirmation of M2 has not been recorded (see "How to verify M2 on the live vill
 **DEV-DOCS-01 — README, screenshots, license, CI**: done and committed. No application code,
 migration or test was changed. The CI workflow has **not run on GitHub yet** (nothing was pushed).
 
+**DEV-M2-FIX-01 — max 9 wards per Union**: done and committed (see "M2 fix: max 9 wards").
+
 ## Done
 ### M1 Part A — scaffold, backend core, `./village` CLI
 - Project layout, `.gitignore`, `backend/requirements.txt` (installs on Python 3.14.4;
@@ -213,6 +215,40 @@ migration or test was changed. The CI workflow has **not run on GitHub yet** (no
   assistant's assumption — the brief asked for M1–M9 but nothing in the repo defined M9. It is
   the part of the SPEC (§9) that M3–M8 did not cover.
 
+### M2 fix: max 9 wards (DEV-M2-FIX-01, 2026-11-15)
+- One constant, `MAX_WARDS_PER_UNION = 9`, in the new `backend/app/limits.py`. Every other place
+  reads it; the frontend gets it from the API (`max_wards_per_union` in `GET /api/org/tree`,
+  `max_wards` on every template in `GET /api/templates`) and never hard-codes 9.
+- `POST /api/unions/{id}/wards` on a Union that already has 9 wards → **409** "A Union can have at
+  most 9 wards. Delete a ward before adding another." The count (not the highest number) is
+  limited, so after a delete the next ward is allowed again (it still gets the next number, e.g. 10).
+  The check runs after the existing write lock on the Union, so parallel adds cannot pass it twice.
+- Generation reads at most 9 ward rows per template (`LIMIT`), so a generated Union never gets more
+  than 9 — tested with a 10th template row inserted directly into the database.
+- New endpoint `PUT /api/templates/{key}/wards` `{"wards": [{name, responsibility}, …]}`: saves a
+  template's whole default ward set (1–9 names; 10 or more, or none → **422**). Rows keep their id
+  where the number stays; extra rows are added, missing ones removed. Only the template changes.
+  It is session-protected (added to the route list in `test_every_m2_route_needs_a_session`).
+  This endpoint is new: before, templates could only rename their 9 seeded wards, so "reject a
+  template with more than 9 names on save" needed a way to save a ward set.
+- Ward & Office Management: at 9 wards the "Add ward" button is replaced by the note "Maximum 9
+  wards per Union"; with 8 or fewer the button is shown.
+- Templates tab: each default ward row has a remove button (disabled for the last one), and an
+  "Add ward name" button that is replaced by the same note at 9 rows. Plain renames still use the
+  old per-ward `PATCH`; adding/removing rows saves the whole set with the new `PUT`.
+- No migration, no change to existing data. A Union that already had more than 9 wards keeps them;
+  it just cannot get more (the button is hidden and the API answers 409).
+- Tests: pytest **128 passed, 1 skipped** (shellcheck not installed); 7 new tests in
+  `backend/tests/test_m2_fix_max_wards.py`. Vitest **56 passed** (5 new; the existing "adds the
+  next ward" test now starts from a Union with 8 wards, because 9 hides the button). `npm run
+  build` ok, `bash -n village` ok. The Vitest run used Node 24.21.0.
+- Checked on a real server (scratch DB + `.env`, port 8011, now stopped and the files only in the
+  scratchpad): generate Study → 10th ward 409, tree reports 9, `PUT` with 10 names 422; the Ward
+  page showed the note instead of the button (screenshot checked, then deleted). The Templates tab
+  was **not** checked in a browser, only in Vitest.
+- **The live village on port 8000 still runs the old code** — it was not restarted or rebuilt by
+  the assistant. Run `./village stop && ./village setup && ./village start` to use the fix.
+
 ## How to verify M2 on the live village
 `./village stop && ./village setup && ./village start`, log in, then:
 1. Village Overview: Upazilas 0, Unions 0, Wards 0, Offices 1 (Central Administration).
@@ -222,7 +258,8 @@ migration or test was changed. The CI workflow has **not run on GitHub yet** (no
 4. Tab "Tree view" → expand Study Upazila → expand a Union → 9 wards, Class Routine … Daily
    Academic Reporting.
 5. Union Management (pick Study Upazila): New Union, edit it, delete it (type its name).
-6. Ward & Office Management (pick a Union): edit a ward inline, "Add ward", delete a ward.
+6. Ward & Office Management (pick a Union): edit a ward inline. With 9 wards there is no
+   "Add ward" button, only "Maximum 9 wards per Union"; delete a ward → the button comes back.
 7. Tab "Templates" → Business Upazila → fill in ward names → Save → generate Business.
 8. Overview again: the four counts match.
 
@@ -251,9 +288,8 @@ migration or test was changed. The CI workflow has **not run on GitHub yet** (no
   locally). The README has no CI badge until the first green run.
 - Study wards show the same text twice (name and responsibility), because the SPEC gives one
   label per ward and both fields were seeded with it. Edit either in the Templates tab.
-- Templates: names can be edited, but Unions/wards cannot be added to or removed from a template
-  yet (the brief asked for editing only). Changing how many Unions or wards a template has needs
-  a new migration or a future feature.
+- Templates: default wards can be added/removed (1–9, DEV-M2-FIX-01), but Unions still cannot
+  be added to or removed from a template.
 - Wards cannot be renumbered or reordered; deleting a ward leaves a gap in the numbers. Upazilas
   and Unions have a `sort_order` in the API but no reorder control in the UI.
 - Deleting an Upazila/Union/Ward is not blocked by agents because agents do not exist yet;
@@ -279,10 +315,9 @@ migration or test was changed. The CI workflow has **not run on GitHub yet** (no
   harmless today.
 
 ## Last session
-- DEV-DOCS-01: README, LICENSE, five real screenshots, CI workflow, `.gitignore` additions.
-  No application code, migration or test was changed. One commit; nothing was pushed.
-- Found while dry-running CI: the frontend tests need Node >= 22 (details above).
-- Nothing from M3+ exists (no agents, tasks, approvals, map, documents, commerce or backup).
-- Waiting for: the owner's confirmation of M2, the ward names for the
+- DEV-M2-FIX-01: a Union may hold at most 9 wards (API 409, generation capped, template ward set
+  1–9 with 422 above, UI hides "Add ward" at 9 and shows a note). Tests pass; one commit; nothing
+  pushed; the live village was not restarted.
+- Still waiting for: the owner's confirmation of M2, the ward names for the
   Business/Career/Research/Project/Personal templates, the Node 20 vs 22 decision, and the first
   CI run on GitHub (then the CI badge can be added).
