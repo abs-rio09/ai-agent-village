@@ -3,7 +3,8 @@ import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 
 import { api, errorMessage, type Agent } from "../api";
-import { AgentAvatar, LifecycleBadge, RuntimeBadge } from "../components/agents";
+import { LifecycleBadge, RuntimeBadge } from "../components/agents";
+import { RobotAvatar, robotRoleFor } from "../components/robots";
 import { EmptyState, PageHeader, plural, useOrgTree } from "../components/org";
 import { ErrorBanner } from "../components/ui";
 
@@ -17,7 +18,14 @@ function AgentCard({ agent }: { agent: Agent }) {
       aria-label={`${agent.display_name}, ${agent.role}`}
       className="panel flex min-w-0 gap-4 p-4 transition hover:border-night-500"
     >
-      <AgentAvatar avatarKey={agent.avatar_key} size={56} />
+      <RobotAvatar
+        role={robotRoleFor(agent.template_key)}
+        status={agent.activity}
+        taskId={agent.current_task_id}
+        name={agent.display_name}
+        title={agent.role}
+        size={56}
+      />
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-2">
           <h2 className="truncate text-[15px] font-semibold text-mist-50">{agent.display_name}</h2>
@@ -33,7 +41,7 @@ function AgentCard({ agent }: { agent: Agent }) {
         </p>
         <div className="mt-2.5 flex flex-wrap gap-1.5">
           <LifecycleBadge lifecycle={agent.lifecycle} />
-          <RuntimeBadge state={agent.runtime_state} />
+          <RuntimeBadge state={agent.activity} />
         </div>
       </div>
     </Link>

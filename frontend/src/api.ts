@@ -279,6 +279,10 @@ export interface Agent {
   provider: string;
   lifecycle: Lifecycle;
   runtime_state: RuntimeState;
+  /** Computed by the server for every response: what the agent is doing right now. */
+  activity: RuntimeState;
+  /** The task it works on, or the one that waits for approval; null when idle or offline. */
+  current_task_id: number | null;
   is_central_manager: boolean;
   /** True = it has tasks or messages, so it can only be disabled, not deleted. */
   has_history: boolean;
@@ -312,6 +316,8 @@ export interface AgentRef {
   display_name: string;
   role: string;
   avatar_key: string;
+  /** The template the agent was made from; decides which robot it is drawn as. */
+  template_key?: string | null;
   is_central_manager: boolean;
 }
 

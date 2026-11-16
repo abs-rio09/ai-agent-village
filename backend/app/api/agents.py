@@ -18,7 +18,7 @@ from pydantic import BaseModel, ConfigDict, StringConstraints, field_validator
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app import audit
+from app import agent_activity, audit
 from app.agent_catalog import PERMISSION_KEYS, PERMISSIONS
 from app.api.fields import Description, IconKey, Name
 from app.db import as_utc, get_session, utcnow
@@ -114,6 +114,9 @@ class AgentOut(BaseModel):
     working_schedule: dict[str, Any]
     lifecycle: Lifecycle
     runtime_state: Literal["idle", "working", "waiting", "offline"]
+    # Computed for every response, never stored (app/agent_activity.py):
+    activity: Literal["working", "idle", "waiting", "offline"]
+    current_task_id: int | None  # the task it works on, or the one that waits for approval
     is_central_manager: bool
     has_history: bool  # True = it has tasks or messages, so it can only be disabled, not deleted
     created_at: datetime
@@ -271,8 +274,9 @@ def agent_rows_query():  # noqa: ANN201
     )
 
 
-def _agent_out(row: Any, history: set[int]) -> AgentOut:
+def _agent_out(row: Any, history: set[int], activities: dict[int, tuple[str, int | None]]) -> AgentOut:
     agent, template, office, ward, union, upazila = row
+    activity, current_task_id = activities.get(agent.id, (agent_activity.derive(agent.lifecycle, None, None)))
     return AgentOut(
         id=agent.id,
         display_name=agent.display_name,
@@ -292,6 +296,8 @@ def _agent_out(row: Any, history: set[int]) -> AgentOut:
         working_schedule=dict(agent.working_schedule),
         lifecycle=agent.lifecycle,
         runtime_state=agent.runtime_state,
+        activity=activity,  # type: ignore[arg-type]
+        current_task_id=current_task_id,
         is_central_manager=agent.is_central_manager,
         has_history=agent.id in history,
         created_at=as_utc(agent.created_at),  # type: ignore[arg-type]
@@ -304,7 +310,7 @@ def _load(db: Session, agent_id: int) -> AgentOut:
     row = db.execute(agent_rows_query().where(Agent.id == agent_id)).first()
     if row is None:
         raise _not_found("Agent")
-    return _agent_out(row, agents_with_history(db, [agent_id]))
+    return _agent_out(row, agents_with_history(db, [agent_id]), agent_activity.activity_of(db, {agent_id: row[0].lifecycle}))
 
 
 def _get_agent(db: Session, agent_id: int) -> Agent:
@@ -352,7 +358,8 @@ def list_agents(
         query = query.where(Agent.lifecycle == lifecycle)
     rows = db.execute(query).all()
     history = agents_with_history(db, [row[0].id for row in rows])
-    return [_agent_out(row, history) for row in rows]
+    activities = agent_activity.activity_of(db, {row[0].id: row[0].lifecycle for row in rows})
+    return [_agent_out(row, history, activities) for row in rows]
 
 
 @router.post("/agents", response_model=AgentOut, status_code=status.HTTP_201_CREATED)

@@ -15,7 +15,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app import approvals, audit, task_runner
-from app.api.tasks import AgentRef, descendants
+from app.api.tasks import AgentRef, agent_refs, descendants
 from app.db import as_utc, get_session
 from app.models import Agent, Approval, Task
 from app.security import AuthContext, current_auth
@@ -63,10 +63,7 @@ class PendingCount(BaseModel):
 
 
 def _out(db: Session, rows: list[Approval]) -> list[ApprovalOut]:
-    agents = {
-        agent.id: agent
-        for agent in db.execute(select(Agent).where(Agent.id.in_({row.agent_id for row in rows}))).scalars()
-    } if rows else {}
+    agents = agent_refs(db, {row.agent_id for row in rows})
     tasks = {
         task.id: task for task in db.execute(select(Task).where(Task.id.in_({row.task_id for row in rows}))).scalars()
     } if rows else {}
@@ -77,15 +74,7 @@ def _out(db: Session, rows: list[Approval]) -> list[ApprovalOut]:
             ApprovalOut(
                 id=row.id,
                 status=row.status,  # type: ignore[arg-type]
-                agent=AgentRef(
-                    id=agent.id,
-                    display_name=agent.display_name,
-                    role=agent.role,
-                    avatar_key=agent.avatar_key,
-                    is_central_manager=agent.is_central_manager,
-                )
-                if agent is not None
-                else None,
+                agent=agent,
                 action=row.action,
                 reason=row.reason,
                 tool_key=row.tool_key,

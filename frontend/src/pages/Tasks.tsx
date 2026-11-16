@@ -3,7 +3,8 @@ import { useCallback, useEffect, useRef, useState, type FormEvent } from "react"
 import { Link, useSearchParams } from "react-router";
 
 import { api, errorMessage, type AgentMessage, type Routing, type Task, type TaskDetail, type TaskPriority } from "../api";
-import { AgentAvatar, TaskStatusBadge, formatTime, isActiveStatus } from "../components/agents";
+import { TaskStatusBadge, formatTime, isActiveStatus } from "../components/agents";
+import { RobotAvatar, robotRoleFor, type Activity } from "../components/robots";
 import { PageHeader, plural } from "../components/org";
 import { Button, ErrorBanner, cx } from "../components/ui";
 import { useIsMobile } from "../hooks";
@@ -11,6 +12,9 @@ import { useIsMobile } from "../hooks";
 // Task Center: send a request to the Central Manager and follow it. The background worker on the
 // server does the work; this page only reads. It polls while a task is unfinished and stops
 // polling as soon as nothing is active.
+
+// What the agent of a task is doing WITH THAT TASK (finished and not-yet-started tasks show no status).
+const TASK_ACTIVITY: Partial<Record<Task["status"], Activity>> = { RUNNING: "working", WAITING_APPROVAL: "waiting" };
 
 const TITLE_MAX = 200;
 const DETAILS_MAX = 4000;
@@ -191,7 +195,16 @@ function TaskDetailPanel({ task, timezone, onCancel }: DetailProps) {
             {task.children.map((child) => (
               <li key={child.id} className="rounded-xl border border-night-700 p-3" aria-label={`Child task ${child.id}`}>
                 <div className="flex flex-wrap items-center gap-3">
-                  {child.assigned_agent && <AgentAvatar avatarKey={child.assigned_agent.avatar_key} size={36} />}
+                  {child.assigned_agent && (
+                    <RobotAvatar
+                      role={robotRoleFor(child.assigned_agent.template_key)}
+                      status={TASK_ACTIVITY[child.status]}
+                      taskId={TASK_ACTIVITY[child.status] ? child.id : null}
+                      name={child.assigned_agent.display_name}
+                      title={child.assigned_agent.role}
+                      size={44}
+                    />
+                  )}
                   <div className="min-w-0 flex-1">
                     <p className="text-sm font-medium text-mist-50">
                       #{child.id}{" "}

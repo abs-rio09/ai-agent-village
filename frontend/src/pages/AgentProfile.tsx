@@ -4,7 +4,6 @@ import { Link, useNavigate, useSearchParams } from "react-router";
 
 import { api, errorMessage, type Agent, type AgentAction, type AgentOptions, type AgentPatch, type OrgTree, type Task } from "../api";
 import {
-  AgentAvatar,
   CatalogChecklist,
   EnforcementNote,
   INSTRUCTIONS_MAX,
@@ -14,6 +13,7 @@ import {
   TaskStatusBadge,
   formatTime,
 } from "../components/agents";
+import { RobotAvatar, robotRoleFor } from "../components/robots";
 import { ConfirmDeleteDialog } from "../components/Dialog";
 import { Breadcrumbs, DESCRIPTION_MAX, EmptyState, NAME_MAX, PageHeader, Picker, useOrgTree, validateName } from "../components/org";
 import { Button, ErrorBanner, Field } from "../components/ui";
@@ -280,7 +280,14 @@ export default function AgentProfile({ timezone }: { timezone?: string }) {
 
           <section className="panel p-5" aria-label={`Agent ${agent.display_name}`}>
             <div className="flex flex-wrap items-start gap-4">
-              <AgentAvatar avatarKey={agent.avatar_key} size={72} />
+              <RobotAvatar
+                role={robotRoleFor(agent.template_key)}
+                status={agent.activity}
+                taskId={agent.current_task_id}
+                name={agent.display_name}
+                title={agent.role}
+                size={72}
+              />
               <div className="min-w-0 flex-1">
                 <h2 className="truncate text-xl font-semibold text-mist-50">{agent.display_name}</h2>
                 <p className="text-sm text-mist-300">
@@ -290,7 +297,12 @@ export default function AgentProfile({ timezone }: { timezone?: string }) {
                 <p className="mt-1 text-sm text-mist-400">{agent.location ? agent.location.path : "No office — its office was deleted"}</p>
                 <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
                   <LifecycleBadge lifecycle={agent.lifecycle} />
-                  <RuntimeBadge state={agent.runtime_state} />
+                  <RuntimeBadge state={agent.activity} />
+                  {agent.current_task_id !== null && (
+                    <Link to={`/tasks?id=${agent.current_task_id}`} className="text-xs font-semibold text-lantern-300 underline-offset-4 hover:underline">
+                      {agent.activity === "waiting" ? "waits with" : "works on"} task #{agent.current_task_id}
+                    </Link>
+                  )}
                   <span className="font-mono text-[11px] text-mist-500">provider: {agent.provider}</span>
                 </div>
               </div>

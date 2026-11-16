@@ -256,6 +256,8 @@ export const CENTRAL_MANAGER: Agent = {
   permissions: ["delegate_tasks"],
   provider: "demo",
   lifecycle: "active",
+  activity: "idle",
+  current_task_id: null,
   runtime_state: "idle",
   is_central_manager: true,
   has_history: false,
@@ -289,8 +291,8 @@ export const MINA: Agent = {
   is_central_manager: false,
 };
 
-const MANAGER_REF = { id: 1, display_name: "Central Manager", role: "Village Manager", avatar_key: "manager", is_central_manager: true };
-const MINA_REF = { id: 2, display_name: "Mina", role: "Study Assistant", avatar_key: "student", is_central_manager: false };
+const MANAGER_REF = { id: 1, display_name: "Central Manager", role: "Village Manager", avatar_key: "manager", template_key: "village_manager", is_central_manager: true };
+const MINA_REF = { id: 2, display_name: "Mina", role: "Study Assistant", avatar_key: "student", template_key: "study_assistant", is_central_manager: false };
 
 export function makeTask(overrides: Partial<Task> = {}): Task {
   return {

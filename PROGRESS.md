@@ -31,8 +31,8 @@ accepted by the owner**. Checked with the test suites, on a scratch server (port
 headless browser; the live village was not started, migrated or rebuilt. See "How to verify M4 on
 the live village" — the Demo approval phrase is **`send message to customer`**.
 
-Milestone **M5 — Dashboard & Map**: Part A (real overview numbers, recent activity) is **built and
-committed**. Parts B (robot avatars) and C (village map) follow.
+Milestone **M5 — Dashboard & Map**: Parts A (real overview numbers, recent activity) and B (robot
+avatars, agent activity) are **built and committed**. Part C (village map) follows.
 
 ## Done
 ### M1 Part A — scaffold, backend core, `./village` CLI
@@ -823,6 +823,45 @@ committed**. Parts B (robot avatars) and C (village map) follow.
   — the first time it was seen firing by the real scheduler (still not at 21:00 sharp).
 - **Not tested:** the 10-second refresh in a real browser (Vitest only, with a 30 ms interval).
 
+### M5 Part B — robot avatars and agent activity (2026-11-16)
+- `frontend/src/components/robots/`: `<RobotAvatar role status size name title taskId />`, one
+  small humanoid robot in inline SVG (no image file, no library). The body is shared; the outfit
+  depends on the role: **manager** (jacket, tie, ID badge on a lanyard), **pion** (helper vest and
+  cap), **doctor** (white coat, cross, stethoscope — with "assistant only" written on the avatar
+  from 56 px up and always in its label), **technician** (overall and tool belt), **researcher**
+  (glasses and an open book), **sales** (business suit and briefcase) and a plain **default**.
+- `roles.ts` is the ONE table from the 15 agent templates to these robots (4 manager, 1 pion,
+  1 doctor, 2 technician, 4 researcher, 3 sales). A pytest reads that file and fails when a
+  template of the catalogue is missing in it.
+- Status: a ring in the activity's colour, a dot (pulsing for working and waiting — CSS
+  animations only, so the existing `prefers-reduced-motion` rule switches them off) and a "#n"
+  badge with the current task. Accessible label: "Mina, Study Assistant, working on task #5";
+  without a name the avatar is decoration (`aria-hidden`).
+- Backend (`app/agent_activity.py`): every agent response has **`activity`** and
+  **`current_task_id`**, computed per request and stored nowhere: `offline` (paused or disabled)
+  → `waiting` (a task of the agent is WAITING_APPROVAL) → `working` (a task is RUNNING) → `idle`.
+  "waiting" wins over "working". Health-check tasks never make anyone busy. One extra query per
+  agent list. The stored `runtime_state` of M3 is still there and unchanged; the pages now show
+  the computed `activity` instead.
+- Agent references in task, approval and schedule responses carry `template_key`, so the same
+  robot is drawn everywhere.
+- Used on: Agent Management cards, Agent Profile (with a "works on task #n" link), the New-agent
+  wizard's template list, the Task Center's child tasks (working / waiting from the task's own
+  status) and the Approval Center's cards. The old avatar (15 near-identical variants in
+  `components/agents.tsx`) was removed.
+- Tests: pytest **410 passed, 1 skipped** — 13 new in `tests/test_m5_agent_activity.py` (the rule
+  for each case, activity following real tasks, waiting for approval, offline, health checks,
+  `template_key` on references, the robot table against the catalogue). Vitest **165 passed** —
+  18 new in `robots.test.tsx` (all 15 templates mapped, each role and each status rendered with
+  its label, doctor "assistant only", decoration mode, the three pages).
+- Seen in headless Chrome on the scratch server: the 15 templates in the wizard as six different
+  robots, and on Agent Management "Central Manager … working on task #27", "Mina … idle",
+  "Sumi … waiting for your approval (task #28)" from real tasks.
+- **Not tested:** "working" for an ordinary agent in a browser — a Demo task finishes in under a
+  second, so only the Central Manager (whose request stays open) was seen working; a screen
+  reader; the robots with reduced motion switched on in the browser (the rule is global CSS).
+- Known: a Demo agent is almost never seen "working". That is honest — it is not working.
+
 ## How to verify M4 on the live village
 Update first (new dependency APScheduler, migrations 0007–0009, new frontend build):
 `./village stop && ./village setup && ./village start`. Then log in.
@@ -929,7 +968,7 @@ frontend), log in, then:
 8. Overview again: the four counts match.
 
 ## In progress
-- M5: Part A committed; Parts B (robot avatars) and C (village map) are next.
+- M5: Parts A and B committed; Part C (village map) is next.
 
 ## Broken & known issues
 - `VILLAGE_SECRET_KEY` is required and generated, but nothing uses it yet (session tokens are

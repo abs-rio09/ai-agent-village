@@ -54,7 +54,7 @@ const main = () => screen.getByRole("main");
 
 describe("Agent Management", () => {
   it("lists the agents with avatar, role, office path and both badges", async () => {
-    mockFetch(agentRoutes([CENTRAL_MANAGER, { ...MINA, lifecycle: "paused", runtime_state: "offline" }]));
+    mockFetch(agentRoutes([CENTRAL_MANAGER, { ...MINA, lifecycle: "paused", runtime_state: "offline", activity: "offline" }]));
     renderApp("/agents");
 
     const list = await screen.findByRole("group", { name: "Agents" });
@@ -62,7 +62,8 @@ describe("Agent Management", () => {
     expect(cards).toHaveLength(2);
     expect(cards[0]).toHaveAccessibleName("Central Manager, Village Manager");
     expect(within(cards[0]!).getByText("Central Administration")).toBeInTheDocument();
-    expect(cards[0]!.querySelector("svg[data-avatar]")).toHaveAttribute("data-avatar", "manager"); // drawn, not downloaded
+    expect(cards[0]!.querySelector("[data-robot]")).toHaveAttribute("data-robot", "manager"); // drawn in SVG, not downloaded
+    expect(cards[0]!.querySelector("img")).toBeNull();
     expect(document.querySelector("img")).toBeNull();
 
     const mina = cards[1]!;

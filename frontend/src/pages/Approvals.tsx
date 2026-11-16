@@ -4,7 +4,8 @@ import { Link, useSearchParams } from "react-router";
 
 import { api, errorMessage, type Approval, type ApprovalStatus } from "../api";
 import { refreshPendingApprovals } from "../approvalCount";
-import { AgentAvatar, Badge, formatTime } from "../components/agents";
+import { Badge, formatTime } from "../components/agents";
+import { RobotAvatar, robotRoleFor } from "../components/robots";
 import { Dialog } from "../components/Dialog";
 import { EmptyState, PageHeader } from "../components/org";
 import { Button, ErrorBanner, cx } from "../components/ui";
@@ -65,7 +66,7 @@ function ApprovalCard({ approval, timezone, onDecide }: CardProps) {
     <article className="panel p-5" aria-label={`Approval request ${approval.id}`}>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex min-w-0 items-center gap-3">
-          {approval.agent && <AgentAvatar avatarKey={approval.agent.avatar_key} size={40} />}
+          {approval.agent && <RobotAvatar role={robotRoleFor(approval.agent.template_key)} size={40} />}
           <div className="min-w-0">
             <p className="eyebrow">Request #{approval.id}</p>
             <p className="truncate text-sm font-semibold text-mist-50">{approval.tool_name}</p>

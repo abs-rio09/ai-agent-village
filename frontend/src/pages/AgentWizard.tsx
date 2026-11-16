@@ -3,7 +3,8 @@ import { useEffect, useState, type FormEvent } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
 
 import { api, errorMessage, type AgentOptions, type AgentTemplate } from "../api";
-import { AgentAvatar, CatalogChecklist, EnforcementNote, INSTRUCTIONS_MAX, OfficePicker } from "../components/agents";
+import { CatalogChecklist, EnforcementNote, INSTRUCTIONS_MAX, OfficePicker } from "../components/agents";
+import { RobotAvatar, robotRoleFor } from "../components/robots";
 import { Breadcrumbs, DESCRIPTION_MAX, NAME_MAX, PageHeader, useOrgTree, validateName } from "../components/org";
 import { Button, ErrorBanner, Field, cx } from "../components/ui";
 
@@ -197,7 +198,7 @@ export default function AgentWizard() {
                       checked={item.id === form.templateId}
                       onChange={() => chooseTemplate(item)}
                     />
-                    <AgentAvatar avatarKey={item.avatar_key} size={44} />
+                    <RobotAvatar role={robotRoleFor(item.key)} size={44} />
                     <span className="min-w-0">
                       <span className="block text-sm font-semibold text-mist-50">{item.name}</span>
                       <span className="block text-xs leading-snug text-mist-400">{item.description}</span>

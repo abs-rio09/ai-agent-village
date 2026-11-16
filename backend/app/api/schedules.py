@@ -17,7 +17,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app import audit, scheduler
-from app.api.tasks import AgentRef
+from app.api.tasks import AgentRef, agent_refs
 from app.db import as_utc, get_session, utcnow
 from app.models import Agent, Schedule, Task
 from app.security import AuthContext, current_auth
@@ -85,10 +85,7 @@ def _out(db: Session, rows: list[Schedule]) -> list[ScheduleOut]:
     engine = scheduler.get_scheduler()
     tz = scheduler.village_timezone(db)
     now = utcnow()
-    agents = {
-        agent.id: agent
-        for agent in db.execute(select(Agent).where(Agent.id.in_({row.agent_id for row in rows if row.agent_id}))).scalars()
-    } if rows else {}
+    agents = agent_refs(db, {row.agent_id for row in rows if row.agent_id})
     task_ids = {row.last_task_id for row in rows if row.last_task_id is not None}
     statuses = dict(db.execute(select(Task.id, Task.status).where(Task.id.in_(task_ids))).all()) if task_ids else {}
     result = []
@@ -104,15 +101,7 @@ def _out(db: Session, rows: list[Schedule]) -> list[ScheduleOut]:
                 name=row.name,
                 kind=row.kind,  # type: ignore[arg-type]
                 builtin_key=row.builtin_key,
-                agent=AgentRef(
-                    id=agent.id,
-                    display_name=agent.display_name,
-                    role=agent.role,
-                    avatar_key=agent.avatar_key,
-                    is_central_manager=agent.is_central_manager,
-                )
-                if agent is not None
-                else None,
+                agent=agent,
                 request_text=row.request_text,
                 trigger_type=row.trigger_type,  # type: ignore[arg-type]
                 interval_minutes=row.interval_minutes,

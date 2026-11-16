@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 
 from app import task_runner  # the module, not its names: task_runner imports this package too
 from app.db import as_utc, get_session
-from app.models import Agent, AgentMessage, Approval, Task
+from app.models import Agent, AgentMessage, AgentTemplate, Approval, Task
 from app.security import AuthContext, current_auth
 from app.task_status import ACTIVE, CANCELLED, QUEUED, TERMINAL
 
@@ -40,6 +40,7 @@ class AgentRef(BaseModel):
     display_name: str
     role: str
     avatar_key: str
+    template_key: str | None = None  # which of the 15 templates it was made from (→ its robot)
     is_central_manager: bool
 
 
@@ -82,19 +83,25 @@ class TaskDetail(TaskOut):
     messages: list[MessageOut]  # of this task and of every task below it, oldest first
 
 
-def _agent_refs(db: Session, agent_ids: set[int]) -> dict[int, AgentRef]:
+def agent_refs(db: Session, agent_ids: set[int]) -> dict[int, AgentRef]:
+    """Short descriptions of agents for task, approval and schedule responses (one query)."""
     if not agent_ids:
         return {}
-    agents = db.execute(select(Agent).where(Agent.id.in_(agent_ids))).scalars()
+    rows = db.execute(
+        select(Agent, AgentTemplate.key)
+        .outerjoin(AgentTemplate, AgentTemplate.id == Agent.template_id)
+        .where(Agent.id.in_(agent_ids))
+    ).all()
     return {
         agent.id: AgentRef(
             id=agent.id,
             display_name=agent.display_name,
             role=agent.role,
             avatar_key=agent.avatar_key,
+            template_key=template_key,
             is_central_manager=agent.is_central_manager,
         )
-        for agent in agents
+        for agent, template_key in rows
     }
 
 
@@ -107,7 +114,7 @@ def _tasks_out(db: Session, tasks: list[Task]) -> list[TaskOut]:
     """TaskOut for many tasks with two extra queries (agents, child counts), whatever the number."""
     agent_ids = {task.assigned_agent_id for task in tasks if task.assigned_agent_id is not None}
     agent_ids |= {creator for task in tasks if (creator := _creator_agent_id(task.created_by)) is not None}
-    agents = _agent_refs(db, agent_ids)
+    agents = agent_refs(db, agent_ids)
     ids = [task.id for task in tasks]
     child_counts: dict[int, int] = {}
     if ids:
@@ -184,7 +191,7 @@ def _detail(db: Session, task: Task) -> TaskDetail:
     messages = db.execute(
         select(AgentMessage).where(AgentMessage.task_id.in_([task.id, *[item.id for item in below]])).order_by(AgentMessage.id)
     ).scalars().all()
-    agents = _agent_refs(db, {message.sender_agent_id for message in messages} | {message.receiver_agent_id for message in messages})
+    agents = agent_refs(db, {message.sender_agent_id for message in messages} | {message.receiver_agent_id for message in messages})
     return TaskDetail(
         **outs[0].model_dump(),
         children=[out for out in outs[1:] if out.parent_task_id == task.id],
