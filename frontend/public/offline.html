@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="color-scheme" content="dark" />
+    <meta name="theme-color" content="#060b0a" />
+    <title>Village is unreachable</title>
+    <!-- Shown by the service worker when the village server cannot be reached.
+         It shows no data at all: nothing from the village is stored on this device. -->
+    <style>
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        background: #060b0a;
+        color: #dfe9e4;
+        font-family: ui-sans-serif, system-ui, "Segoe UI", sans-serif;
+      }
+      main {
+        max-width: 24rem;
+        padding: 2rem 1.5rem;
+        text-align: center;
+      }
+      img {
+        width: 72px;
+        height: 72px;
+        border-radius: 18px;
+      }
+      h1 {
+        margin: 1.25rem 0 0.5rem;
+        font-size: 1.375rem;
+        color: #f1f6f3;
+      }
+      p {
+        margin: 0.5rem 0;
+        line-height: 1.55;
+        color: #aebfb7;
+      }
+      a {
+        display: inline-block;
+        margin-top: 1.25rem;
+        min-height: 44px;
+        line-height: 44px;
+        padding: 0 1.5rem;
+        border-radius: 0.75rem;
+        background: #f6b545;
+        color: #060b0a;
+        font-weight: 600;
+        text-decoration: none;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <img src="/icons/icon-192.png" alt="" />
+      <h1>Village is unreachable</h1>
+      <p>Check that the PC is on and Tailscale is connected.</p>
+      <p>The village runs on your own PC, so nothing can be shown while it cannot be reached.</p>
+      <a href="/">Try again</a>
+    </main>
+  </body>
+</html>

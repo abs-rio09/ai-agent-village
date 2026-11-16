@@ -129,7 +129,7 @@ export function PageHeader({
       <div className="min-w-0">
         <p className="eyebrow">{eyebrow}</p>
         <h1 className="mt-1.5 text-2xl font-semibold tracking-tight text-mist-50">{title}</h1>
-        <p className="mt-1.5 max-w-2xl text-sm text-mist-400">{intro}</p>
+        {intro && <p className="mt-1.5 max-w-2xl text-sm text-mist-400">{intro}</p>}
       </div>
       {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
     </div>

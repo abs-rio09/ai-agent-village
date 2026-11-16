@@ -1,6 +1,7 @@
 import { Link, Navigate, Route, Routes } from "react-router";
 
 import AppShell from "./components/AppShell";
+import { UpdateToast } from "./components/pwa";
 import { Button, FullScreenMessage } from "./components/ui";
 import { ALL_PAGES, isBuilt } from "./nav";
 import AgentProfile from "./pages/AgentProfile";
@@ -53,7 +54,9 @@ export default function App() {
   const gate = needsSetup ? "/setup" : "/login";
 
   return (
-    <Routes>
+    <>
+      <UpdateToast />
+      <Routes>
       <Route path="/setup" element={needsSetup ? <SetupWizard onComplete={refresh} /> : <Navigate to="/" replace />} />
       <Route
         path="/login"
@@ -73,6 +76,7 @@ export default function App() {
         ))}
         <Route path="*" element={<NotFound />} />
       </Route>
-    </Routes>
+      </Routes>
+    </>
   );
 }

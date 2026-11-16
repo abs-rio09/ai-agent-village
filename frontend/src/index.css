@@ -1,5 +1,8 @@
 @import "tailwindcss";
 
+/* Phones and narrow windows (bottom navigation). Keep in step with MOBILE_QUERY in hooks.ts. */
+@custom-variant mobile (@media (max-width: 768px));
+
 /* Night-time smart village: deep paddy-field greens, lantern amber for action,
    fresh green for "healthy". System fonts only — the app must work offline. */
 @theme {
@@ -158,5 +161,20 @@
 
   .input[aria-invalid="true"] {
     border-color: var(--color-clay-400);
+  }
+
+  /* Phones: controls are at least 44 px tall, and 16 px text stops the browser zooming in. */
+  @media (max-width: 768px) {
+    .input {
+      min-height: 2.75rem;
+      font-size: 1rem;
+    }
+
+    /* every button and tab inside a page is a 44 px touch target, small icon buttons included */
+    main button,
+    main [role="tab"] {
+      min-height: 2.75rem;
+      min-width: 2.75rem;
+    }
   }
 }

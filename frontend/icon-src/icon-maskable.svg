@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Maskable variant: full-bleed background, the mark scaled into the central safe zone
+       (a circle of 80% of the width), so Android can crop it to any shape. -->
+  <rect width="512" height="512" fill="#0a1211"/>
+  <g transform="translate(256 256) scale(0.84) translate(-256 -278)">
+    <g fill="none" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M166 152a128 128 0 0 1 180 0" stroke="#5cc8e6" stroke-width="20" opacity="0.5"/>
+      <path d="M205 190a72 72 0 0 1 102 0" stroke="#5cc8e6" stroke-width="20"/>
+      <path d="M110 306 256 194l146 112" stroke="#f6b545" stroke-width="34"/>
+      <path d="M158 296v112h196V296" stroke="#5ee0a0" stroke-width="28"/>
+      <path d="M224 378h64" stroke="#ffcf73" stroke-width="14"/>
+    </g>
+    <circle cx="214" cy="332" r="21" fill="#93dcef"/>
+    <circle cx="298" cy="332" r="21" fill="#93dcef"/>
+  </g>
+</svg>

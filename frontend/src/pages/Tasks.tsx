@@ -1,4 +1,4 @@
-import { Ban, Send } from "lucide-react";
+import { ArrowLeft, Ban, Send } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { Link, useSearchParams } from "react-router";
 
@@ -6,6 +6,7 @@ import { api, errorMessage, type AgentMessage, type Routing, type Task, type Tas
 import { AgentAvatar, TaskStatusBadge, formatTime, isActiveStatus } from "../components/agents";
 import { PageHeader, plural } from "../components/org";
 import { Button, ErrorBanner, cx } from "../components/ui";
+import { useIsMobile } from "../hooks";
 
 // Task Center: send a request to the Central Manager and follow it. The background worker on the
 // server does the work; this page only reads. It polls while a task is unfinished and stops
@@ -220,6 +221,7 @@ export default function Tasks({ timezone, pollMs = POLL_MS }: { timezone?: strin
   const [priority, setPriority] = useState<TaskPriority>("normal");
   const [formError, setFormError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
+  const isMobile = useIsMobile();
   const selectedId = Number(searchParams.get("id")) || null;
   const selectedRef = useRef(selectedId);
   selectedRef.current = selectedId;
@@ -272,12 +274,51 @@ export default function Tasks({ timezone, pollMs = POLL_MS }: { timezone?: strin
     }
   }
 
+  const detailView =
+    selectedId === null ? null : detail ? (
+      <TaskDetailPanel
+        task={detail}
+        timezone={timezone}
+        onCancel={async () => {
+          try {
+            await api.cancelTask(detail.id);
+          } finally {
+            await reload(); // also after a 409: show what the task really is now
+          }
+        }}
+      />
+    ) : (
+      !error && <p className="text-sm text-mist-400">Loading task #{selectedId}…</p>
+    );
+
+  // On a phone an opened task takes the whole screen; "Back" returns to the form and the list.
+  if (isMobile && selectedId !== null) {
+    return (
+      <div className="space-y-4">
+        <Link
+          to="/tasks"
+          className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-night-600 px-4 text-sm font-semibold text-mist-100"
+        >
+          <ArrowLeft size={16} aria-hidden="true" />
+          Back to requests
+        </Link>
+        {error && <ErrorBanner>{error}</ErrorBanner>}
+        {detailView}
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       <PageHeader
         eyebrow="Operations"
         title="Task Center"
-        intro="Send a request to the Central Manager. It finds the matching Upazila by keywords, delegates the request to an active agent there and reports back. Replies are marked [Demo]: no AI model is used in this milestone."
+        // on a phone the send form comes first; the explanation is left to the desktop
+        intro={
+          isMobile
+            ? ""
+            : "Send a request to the Central Manager. It finds the matching Upazila by keywords, delegates the request to an active agent there and reports back. Replies are marked [Demo]: no AI model is used in this milestone."
+        }
       />
       {error && <ErrorBanner>{error}</ErrorBanner>}
 
@@ -345,7 +386,7 @@ export default function Tasks({ timezone, pollMs = POLL_MS }: { timezone?: strin
                   to={`/tasks?id=${task.id}`}
                   aria-current={task.id === selectedId ? "true" : undefined}
                   className={cx(
-                    "flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg px-2 py-2 transition hover:bg-night-800/60",
+                    "flex min-h-11 flex-wrap items-center gap-x-3 gap-y-1 rounded-lg px-2 py-2 transition hover:bg-night-800/60",
                     task.id === selectedId && "bg-night-800/80",
                   )}
                 >
@@ -362,22 +403,7 @@ export default function Tasks({ timezone, pollMs = POLL_MS }: { timezone?: strin
         )}
       </section>
 
-      {selectedId !== null &&
-        (detail ? (
-          <TaskDetailPanel
-            task={detail}
-            timezone={timezone}
-            onCancel={async () => {
-              try {
-                await api.cancelTask(detail.id);
-              } finally {
-                await reload(); // also after a 409: show what the task really is now
-              }
-            }}
-          />
-        ) : (
-          !error && <p className="text-sm text-mist-400">Loading task #{selectedId}…</p>
-        ))}
+      {detailView}
     </div>
   );
 }

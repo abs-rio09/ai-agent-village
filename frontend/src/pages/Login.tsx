@@ -2,7 +2,10 @@ import { LogIn } from "lucide-react";
 import { useState, type FormEvent } from "react";
 
 import { api } from "../api";
+import { InstallHint } from "../components/pwa";
 import { Button, ErrorBanner, Field, VillageCrest } from "../components/ui";
+
+const LOOPBACK = new Set(["127.0.0.1", "localhost", "[::1]"]);
 
 export default function Login({ onLoggedIn }: { onLoggedIn: () => Promise<void> | void }) {
   const [username, setUsername] = useState("");
@@ -28,7 +31,7 @@ export default function Login({ onLoggedIn }: { onLoggedIn: () => Promise<void> 
   }
 
   return (
-    <div className="grid min-h-screen place-items-center p-6">
+    <div className="grid min-h-screen place-items-center p-6 pb-[calc(1.5rem+env(safe-area-inset-bottom))] pt-[calc(1.5rem+env(safe-area-inset-top))]">
       <div className="w-full max-w-sm animate-rise">
         <div className="mb-8 flex flex-col items-center text-center">
           <VillageCrest size={52} />
@@ -64,8 +67,10 @@ export default function Login({ onLoggedIn }: { onLoggedIn: () => Promise<void> 
           </Button>
         </form>
 
+        <InstallHint />
+
         <p className="mt-6 text-center font-mono text-[11px] uppercase tracking-[0.14em] text-mist-500">
-          Local only · 127.0.0.1
+          {LOOPBACK.has(window.location.hostname) ? "Local only · 127.0.0.1" : `Private access · ${window.location.hostname}`}
         </p>
       </div>
     </div>

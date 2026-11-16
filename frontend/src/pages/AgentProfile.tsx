@@ -1,4 +1,4 @@
-import { CirclePause, CirclePlay, CircleSlash, Save, Trash } from "lucide-react";
+import { ArrowLeft, CirclePause, CirclePlay, CircleSlash, Save, Trash } from "lucide-react";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
 
@@ -17,6 +17,7 @@ import {
 import { ConfirmDeleteDialog } from "../components/Dialog";
 import { Breadcrumbs, DESCRIPTION_MAX, EmptyState, NAME_MAX, PageHeader, Picker, useOrgTree, validateName } from "../components/org";
 import { Button, ErrorBanner, Field } from "../components/ui";
+import { useIsMobile } from "../hooks";
 
 // Agent Profile: one agent's settings, lifecycle buttons, safe deletion and task history.
 // `?id=` picks the agent; without it the first agent (the Central Manager) is shown.
@@ -165,7 +166,7 @@ function TaskHistory({ tasks, timezone }: { tasks: Task[] | null; timezone?: str
       ) : (
         <ul className="mt-3 divide-y divide-night-700/70">
           {tasks.map((task) => (
-            <li key={task.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2">
+            <li key={task.id} className="flex min-h-11 flex-wrap items-center gap-x-3 gap-y-1 py-2">
               <TaskStatusBadge status={task.status} />
               <Link
                 to={`/tasks?id=${task.parent_task_id ?? task.id}`}
@@ -184,6 +185,7 @@ function TaskHistory({ tasks, timezone }: { tasks: Task[] | null; timezone?: str
 
 export default function AgentProfile({ timezone }: { timezone?: string }) {
   const navigate = useNavigate();
+  const isMobile = useIsMobile();
   const [searchParams, setSearchParams] = useSearchParams();
   const { tree, error: treeError } = useOrgTree();
   const [agents, setAgents] = useState<Agent[] | null>(null);
@@ -245,7 +247,17 @@ export default function AgentProfile({ timezone }: { timezone?: string }) {
 
   return (
     <div className="space-y-6">
-      <Breadcrumbs items={[{ label: "Agent Management", to: "/agents" }, { label: agent?.display_name ?? "Agent Profile" }]} />
+      {isMobile ? (
+        <Link
+          to="/agents"
+          className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-night-600 px-4 text-sm font-semibold text-mist-100"
+        >
+          <ArrowLeft size={16} aria-hidden="true" />
+          Back to agents
+        </Link>
+      ) : (
+        <Breadcrumbs items={[{ label: "Agent Management", to: "/agents" }, { label: agent?.display_name ?? "Agent Profile" }]} />
+      )}
       <PageHeader
         eyebrow="Agents"
         title="Agent Profile"
@@ -282,7 +294,7 @@ export default function AgentProfile({ timezone }: { timezone?: string }) {
                   <span className="font-mono text-[11px] text-mist-500">provider: {agent.provider}</span>
                 </div>
               </div>
-              <div className="flex flex-wrap gap-2">
+              <div className="flex flex-wrap gap-2 mobile:w-full mobile:[&>button]:flex-1">
                 {agent.is_central_manager ? (
                   <p className="max-w-xs text-xs text-mist-400">
                     The Central Manager is always active and cannot be paused, disabled or deleted: the village needs it to route tasks.

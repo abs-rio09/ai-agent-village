@@ -46,6 +46,7 @@ export function Button({
       className={cx(
         "inline-flex items-center justify-center gap-2 font-semibold transition",
         size === "md" ? "rounded-xl px-4 py-2.5 text-sm" : "rounded-lg px-2.5 py-1.5 text-xs",
+        "mobile:min-h-11", // a comfortable touch target on phones
         "disabled:cursor-not-allowed disabled:opacity-50",
         variant === "primary" &&
           "bg-lantern-400 text-night-950 shadow-[0_8px_24px_-10px_rgb(246_181_69/0.7)] hover:bg-lantern-300 active:translate-y-px",

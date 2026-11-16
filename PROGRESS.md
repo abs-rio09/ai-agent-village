@@ -14,6 +14,10 @@ migration or test was changed. The CI workflow has **not run on GitHub yet** (no
 
 **DEV-M2-FIX-01 — max 9 wards per Union**: done and committed (see "M2 fix: max 9 wards").
 
+**DEV-APP-01 — installable app (PWA) + Tailscale**: Part A (PWA and mobile layout) is built and
+committed; Part B (remote access, devices & sessions, MOBILE.md) is not built yet. Android and
+Tailscale are **not tested by Claude Code** — see the APP-01 sections.
+
 Milestone **M3 — Agents & Tasks**: Parts A, B and C are **built and committed, not yet accepted
 by the owner**. Checked on a scratch database and port 8013 only; the live village on port 8000
 was not touched and still runs the older code (see "How to verify M3 on the live village").
@@ -385,6 +389,62 @@ was not touched and still runs the older code (see "How to verify M3 on the live
   middle of the work, and by Vitest), and the drawer/other pages on small screens.
 - Tests after the fixes: Vitest **74 passed**, pytest **259 passed, 1 skipped**, type-check and
   scratch build ok.
+
+### APP-01 Part A — installable PWA and mobile layout (2026-11-16)
+- One Progressive Web App, no Electron/Tauri/Capacitor/APK and no new dependency.
+- `frontend/public/manifest.webmanifest` (name "AI Agent Village", short_name "Village",
+  standalone, scope and start_url "/", dark theme/background `#060b0a`), icons 192, 512, a 512
+  maskable and a 180 px apple-touch-icon. The icon is original: a village house that is also a
+  robot face under a signal arc. Sources are `frontend/icon-src/*.svg`; the PNGs were rendered
+  from them in Chrome (no SVG rasteriser is installed on this PC).
+- `frontend/public/sw.js`, hand-written: precaches only the built shell (10 files: index.html, the
+  hashed JS/CSS, icons, manifest, favicon, offline page), fetched without cookies. It returns
+  without handling anything under `/api`, never writes to a cache at run time, and deletes caches
+  of older versions on activate. A new version waits; the app shows "Update available — reload".
+  `frontend/scripts/build-sw.mjs` (plain Node, runs at the end of `npm run build`) writes the
+  precache list and a content-hash version into `dist/sw.js`.
+  **Deviation to know:** `index.html` is in the precache as asked, but page navigations always go
+  to the server first; the cached copy is not used to open the app. That is deliberate — the app
+  is useless without the server, and it is what makes "offline → unreachable page" true.
+  A navigation that fails, or gets 502/504 from a proxy, shows `offline.html` ("Village is
+  unreachable — check that the PC is on and Tailscale is connected", no script, no data).
+- FastAPI serves `/sw.js` as `text/javascript` and `/manifest.webmanifest` as
+  `application/manifest+json`, both `Cache-Control: no-cache`; the CSP names `worker-src` and
+  `manifest-src`. The service worker is registered in production builds only (not in `npm run dev`).
+- Mobile layout (≤ 768 px, decided in JS with `matchMedia`, CSS variant `mobile:`): the sidebar
+  and hamburger are replaced by a bottom bar — Overview, Tasks, Agents, More — and More opens the
+  full 22-page menu as a sheet. Safe-area insets on the bar, header and sheet. Buttons, tabs and
+  inputs inside pages are at least 44 px on a phone. Task Center: send form first, then the list;
+  an opened task takes the whole screen with "Back to requests". Agent Profile: "Back to agents"
+  and full-width lifecycle buttons. Above 768 px nothing changed (769–1023 px keeps the drawer).
+- Header: connection indicator Online/Offline. Online = `/api/health` answered. It checks at once
+  and every 30 s only while the page is visible, stops when hidden, and reacts to the browser's
+  online/offline events. On a phone the AI-mode badge moved into the More sheet to make room.
+- Login page: an "Install app" hint only when the browser fires `beforeinstallprompt`; "Not now"
+  or dismissing the browser's prompt hides it for good (remembered in localStorage). The footer
+  says "Local only · 127.0.0.1" on loopback and "Private access · <host>" otherwise.
+- Also fixed while checking at 390 px: the Upazila cards overflowed sideways (pre-existing).
+- Tests: Vitest **111 passed** (37 new in `pwa.test.tsx`: bottom bar, More sheet, 768/769 px,
+  phone task view, connection states and polling start/stop, install hint, update toast, manifest,
+  offline page, and the service worker run against fake `caches`/`fetch` — 8 `/api` requests are
+  left alone, precache, old-cache removal, offline fallback). pytest **265 passed, 1 skipped**
+  (6 new: content types, no-cache, icons really served at their stated sizes, a read of `sw.js`).
+- Checked in a real (headless) Chrome against the scratch server on port 8013, 390 × 844:
+  - Chrome's own `Page.getInstallabilityErrors` returned **no errors**, the manifest parsed with
+    no errors, and Chrome fired `beforeinstallprompt` (its console said the banner was suppressed
+    by the app). **The "Install app" menu entry itself and an installed window were not seen** —
+    a headless browser has no such menu.
+  - Service worker active and controlling; cache = exactly the 10 shell files; after visiting 11
+    pages there was still nothing under `/api` in any cache.
+  - A rebuild produced a new version: the toast appeared, "Reload" switched to the new cache and
+    the old cache was deleted.
+  - 11 pages at 390 px: no horizontal scroll, no button/input under 44 px.
+  - Server stopped: indicator → Offline, a navigation showed the unreachable page, and
+    `fetch('/api/health')` failed with a network error (not answered from a cache).
+- `npm run build` itself was **not** run into `frontend/dist` (the live village serves that
+  folder); the same three steps were run into a scratch folder. `./village setup` does the real one.
+- **Not tested:** installing on Ubuntu Chrome by hand, anything on Android or iOS, the safe-area
+  insets on a real notched phone, the login page and setup wizard at phone width in a browser.
 
 ## How to verify M3 on the live village
 `./village stop && ./village setup && ./village start` (setup migrates to 0005 and rebuilds the

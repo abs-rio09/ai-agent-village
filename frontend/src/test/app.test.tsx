@@ -153,16 +153,18 @@ describe("app shell", () => {
   });
 
   it("shows 'Coming in M<n>' with no data for pages that are not built", async () => {
-    const { callsTo } = mockFetch(AUTHED);
+    const { callsTo, fetchMock } = mockFetch(AUTHED);
     const user = renderApp("/");
     const nav = await screen.findByRole("navigation", { name: "Village pages" });
 
+    await waitFor(() => expect(callsTo("GET /api/health")).toHaveLength(2)); // the overview and the header's connection check
+    const before = fetchMock.mock.calls.length;
     await user.click(within(nav).getByRole("link", { name: /^Approval Center/ }));
     const main = screen.getByRole("main");
     expect(within(main).getByRole("heading", { level: 1, name: "Approval Center" })).toBeInTheDocument();
     expect(within(main).getByText("Coming in M4")).toBeInTheDocument();
     expect(within(main).queryByRole("table")).not.toBeInTheDocument();
-    expect(callsTo("GET /api/health")).toHaveLength(1); // only the overview asked for data
+    expect(fetchMock.mock.calls).toHaveLength(before); // the placeholder asked the server for nothing
 
     for (const page of ALL_PAGES.filter((candidate) => !isBuilt(candidate))) {
       await user.click(within(nav).getByRole("link", { name: new RegExp(`^${page.label}`) }));

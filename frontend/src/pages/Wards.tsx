@@ -392,7 +392,7 @@ export default function Wards() {
                   <p>Use “Add ward” to create Ward 1 and its Office.</p>
                 </EmptyState>
               ) : (
-                <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3" aria-label={`Wards of ${union.name}`} role="group">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3" aria-label={`Wards of ${union.name}`} role="group">
                   {union.wards.map((ward) => (
                     <WardCard
                       key={ward.id}

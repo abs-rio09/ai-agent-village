@@ -29,8 +29,16 @@ _SECURITY_HEADERS = {
     "Referrer-Policy": "no-referrer",
     "Content-Security-Policy": (
         "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; "
+        "manifest-src 'self'; worker-src 'self'; "
         "frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
     ),
+}
+
+# Files of the installable app (PWA) that browsers are strict about: the service worker must be
+# JavaScript and must be re-checked on every load, the manifest has its own media type.
+_PWA_MEDIA_TYPES = {
+    "sw.js": "text/javascript",
+    "manifest.webmanifest": "application/manifest+json",
 }
 
 _NOT_BUILT_HTML = """<!doctype html>
@@ -127,7 +135,9 @@ def create_app() -> FastAPI:
             if candidate.is_relative_to(dist) and candidate.is_file():
                 if full_path.startswith("assets/"):  # content-hashed by Vite
                     return FileResponse(candidate, headers={"Cache-Control": "public, max-age=31536000, immutable"})
-                return FileResponse(candidate, headers={"Cache-Control": "no-cache"})
+                return FileResponse(
+                    candidate, media_type=_PWA_MEDIA_TYPES.get(full_path), headers={"Cache-Control": "no-cache"}
+                )
             if full_path.startswith("assets/"):
                 raise HTTPException(status_code=404, detail="Not found")
         return FileResponse(index, headers={"Cache-Control": "no-cache"})  # SPA fallback

@@ -266,7 +266,7 @@ function UpazilaCard({ upazila, templateName, onEdit, onDelete, onGenerate }: Ca
     { label: "Offices", value: upazila.counts.offices },
   ];
   return (
-    <article className="panel flex flex-col p-5" aria-label={upazila.name}>
+    <article className="panel flex min-w-0 flex-col p-5" aria-label={upazila.name}>
       <div className="flex items-start gap-3">
         <div className="grid size-11 shrink-0 place-items-center rounded-xl border border-night-600 bg-night-800 text-lantern-300">
           <OrgIcon name={upazila.icon} size={20} />
@@ -443,7 +443,7 @@ export default function Upazilas() {
             )}
           </EmptyState>
         ) : (
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
             {tree.upazilas.map((upazila) => (
               <UpazilaCard
                 key={upazila.id}
