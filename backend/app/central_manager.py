@@ -234,18 +234,29 @@ def route(db: Session, task: Task) -> Routing:
     )
 
 
-def delegate(db: Session, parent: Task, agent: Agent, routing: dict[str, Any] | None = None) -> Task:
-    """Create a child task of `parent` for `agent` and log the delegation as a message.
+def delegate(
+    db: Session,
+    parent: Task,
+    agent: Agent,
+    routing: dict[str, Any] | None = None,
+    *,
+    title: str | None = None,
+    description: str | None = None,
+) -> Task:
+    """Create a child task of `parent` for `agent` and log the delegation as a message. The child
+    repeats the parent's title and description unless others are given.
 
-    The caller commits. Raises DelegationDepthError beyond MAX_DELEGATION_DEPTH.
+    Permission is NOT checked here: callers go through the `task.create_child` tool
+    (app.tools.call_tool). The caller commits. Raises DelegationDepthError beyond
+    MAX_DELEGATION_DEPTH.
     """
     if parent.depth + 1 > MAX_DELEGATION_DEPTH:
         raise DelegationDepthError
     if parent.assigned_agent_id is None:
         raise ValueError("only a task that has an agent can be delegated")
     child = Task(
-        title=parent.title,
-        description=parent.description,
+        title=title or parent.title,
+        description=parent.description if description is None else description,
         created_by=f"agent:{parent.assigned_agent_id}",
         assigned_agent_id=agent.id,
         parent_task_id=parent.id,
@@ -268,6 +279,20 @@ def delegate(db: Session, parent: Task, agent: Agent, routing: dict[str, Any] | 
     return child
 
 
+def child_results(children: Sequence[Task], agent_names: dict[int, str]) -> str:
+    """What every child task returned, one block per child."""
+    lines: list[str] = []
+    for child in children:
+        name = agent_names.get(child.assigned_agent_id or 0, "an agent")
+        if lines:
+            lines.append("")
+        if child.status == SUCCEEDED:
+            lines += [f"--- Result from {name} (task #{child.id}) ---", child.output or ""]
+        else:
+            lines += [f"--- No result from {name} (task #{child.id}: {child.status}) ---", child.error or ""]
+    return "\n".join(lines)
+
+
 def final_report(parent: Task, children: Sequence[Task], agent_names: dict[int, str]) -> str:
     """The parent's output: where the request went and what every child task returned."""
     done = [child for child in children if child.status == SUCCEEDED]
@@ -280,13 +305,7 @@ def final_report(parent: Task, children: Sequence[Task], agent_names: dict[int, 
                 f" → {routing.get('agent_name')} ({routing.get('agent_role')}), {routing.get('agent_path')}"
             )
     lines.append(f"Delegated tasks: {len(done)} succeeded, {len(children) - len(done)} not completed")
-    for child in children:
-        name = agent_names.get(child.assigned_agent_id or 0, "an agent")
-        lines.append("")
-        if child.status == SUCCEEDED:
-            lines += [f"--- Result from {name} (task #{child.id}) ---", child.output or ""]
-        else:
-            lines += [f"--- No result from {name} (task #{child.id}: {child.status}) ---", child.error or ""]
+    lines += ["", child_results(children, agent_names)]
     lines += [
         "",
         "The Central Manager did not do this work itself: it routed the request by keywords and collected the "

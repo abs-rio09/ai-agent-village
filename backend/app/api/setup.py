@@ -17,6 +17,7 @@ from pydantic import BaseModel, ConfigDict, Field, SecretStr, StringConstraints,
 from sqlalchemy import update
 from sqlalchemy.orm import Session
 
+from app import audit
 from app.api.village import AiMode, DefaultStructure, VillageResponse, village_response
 from app.config import get_settings, save_env_value
 from app.db import get_session, utcnow
@@ -184,6 +185,13 @@ def run_setup(
                     status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                     detail="Could not write the API key to the secrets file. Setup was not completed.",
                 ) from None
+        audit.record(
+            db,
+            "settings.setup_completed",
+            actor=audit.chairman(admin.username),
+            summary=f"First-run setup: village '{village.name}', AI mode {village.ai_mode}, timezone {village.timezone}.",
+            details={"ai_mode": village.ai_mode, "timezone": village.timezone, "cloud_ai_configured": api_key is not None},
+        )
         db.commit()
     except HTTPException:
         raise

@@ -2,7 +2,8 @@
 
 Rules:
 - An agent's Upazila, Union and Ward are derived from its office (nothing is stored twice).
-- Tools and permissions are stored only. Nothing enforces them before M4.
+- Tools come from the central registry (app/tools) and, like permissions, are enforced on every
+  tool call (app.tools.check_tool_use). Every lifecycle change is written to the audit log.
 - The Central Manager cannot be paused, disabled, deleted or moved out of Central Administration.
 - An agent with history (tasks or messages) cannot be deleted — it is disabled instead.
 """
@@ -17,11 +18,14 @@ from pydantic import BaseModel, ConfigDict, StringConstraints, field_validator
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.agent_catalog import PERMISSION_KEYS, PERMISSIONS, TOOL_KEYS, TOOLS, CatalogItem
+from app import audit
+from app.agent_catalog import PERMISSION_KEYS, PERMISSIONS
 from app.api.fields import Description, IconKey, Name
 from app.db import as_utc, get_session, utcnow
 from app.models import Agent, AgentMessage, AgentTemplate, Office, Task, UnionUnit, Upazila, Ward
 from app.providers import provider_names
+from app.security import AuthContext, current_auth
+from app.tools import all_tools, tool_keys
 
 router = APIRouter(tags=["agents"])
 
@@ -37,14 +41,19 @@ class CatalogItemOut(BaseModel):
     key: str
     label: str
     description: str
-    sensitive: bool
+    sensitive: bool  # a tool that always needs approval / the permission such a tool requires
+    # tools only:
+    risk: Literal["READ", "WRITE", "SENSITIVE"] | None = None
+    available: bool = True  # False = registered, but it answers "not available yet"
+    planned_for: str = ""
+    required_permission: str | None = None
 
 
 class AgentOptions(BaseModel):
     tools: list[CatalogItemOut]
     permissions: list[CatalogItemOut]
     providers: list[str]
-    enforced: bool  # False in M3: tools and permissions are stored, not enforced
+    enforced: bool  # True since M4: every tool call is checked against them
 
 
 class AgentTemplateOut(BaseModel):
@@ -134,7 +143,7 @@ class _AgentFields(BaseModel):
     @field_validator("allowed_tools")
     @classmethod
     def _known_tools(cls, value: list[str] | None) -> list[str] | None:
-        return _known(value, TOOL_KEYS, "tool")
+        return _known(value, tool_keys(), "tool")
 
     @field_validator("permissions")
     @classmethod
@@ -183,11 +192,32 @@ def _conflict(detail: str) -> HTTPException:
     return HTTPException(status_code=status.HTTP_409_CONFLICT, detail=detail)
 
 
-def _catalog(items: tuple[CatalogItem, ...]) -> list[CatalogItemOut]:
+def tools_out() -> list[CatalogItemOut]:
+    """The tool registry as the API shows it (GET /api/tools and the agent forms)."""
+    return [
+        CatalogItemOut(
+            key=tool.key,
+            label=tool.name,
+            description=tool.description,
+            sensitive=tool.needs_approval,
+            risk=tool.risk.value,
+            available=tool.available,
+            planned_for=tool.planned_for,
+            required_permission=tool.required_permission,
+        )
+        for tool in all_tools()
+    ]
+
+
+def _permissions_out() -> list[CatalogItemOut]:
     return [
         CatalogItemOut(key=item.key, label=item.label, description=item.description, sensitive=item.sensitive)
-        for item in items
+        for item in PERMISSIONS
     ]
+
+
+def _audit(db: Session, auth: AuthContext, action: str, agent: Agent, summary: str, **details: Any) -> None:
+    audit.record(db, action, actor=audit.chairman(auth.user.username), agent=agent, summary=summary, details=details)
 
 
 def _template_out(row: AgentTemplate) -> AgentTemplateOut:
@@ -300,9 +330,7 @@ def list_agent_templates(db: Session = Depends(get_session)) -> list[AgentTempla
 @router.get("/agent-options", response_model=AgentOptions)
 def agent_options() -> AgentOptions:
     """The tools and permissions an agent can be given, with labels for the forms."""
-    return AgentOptions(
-        tools=_catalog(TOOLS), permissions=_catalog(PERMISSIONS), providers=provider_names(), enforced=False
-    )
+    return AgentOptions(tools=tools_out(), permissions=_permissions_out(), providers=provider_names(), enforced=True)
 
 
 # ---------------------------------------------------------------- agents
@@ -328,7 +356,9 @@ def list_agents(
 
 
 @router.post("/agents", response_model=AgentOut, status_code=status.HTTP_201_CREATED)
-def create_agent(body: AgentCreate, db: Session = Depends(get_session)) -> AgentOut:
+def create_agent(
+    body: AgentCreate, auth: AuthContext = Depends(current_auth), db: Session = Depends(get_session)
+) -> AgentOut:
     template = db.get(AgentTemplate, body.template_id)
     if template is None:
         raise _not_found("Agent template")
@@ -352,6 +382,17 @@ def create_agent(body: AgentCreate, db: Session = Depends(get_session)) -> Agent
         runtime_state="idle" if body.activate else "offline",
     )
     db.add(agent)
+    db.flush()
+    _audit(
+        db,
+        auth,
+        "agent.created",
+        agent,
+        f"Created '{agent.display_name}' ({agent.role}) as {agent.lifecycle}.",
+        template=template.key,
+        allowed_tools=list(agent.allowed_tools),
+        permissions=list(agent.permissions),
+    )
     db.commit()
     return _load(db, agent.id)
 
@@ -362,14 +403,19 @@ def get_agent(agent_id: int, db: Session = Depends(get_session)) -> AgentOut:
 
 
 @router.patch("/agents/{agent_id}", response_model=AgentOut)
-def update_agent(agent_id: int, body: AgentPatch, db: Session = Depends(get_session)) -> AgentOut:
+def update_agent(
+    agent_id: int, body: AgentPatch, auth: AuthContext = Depends(current_auth), db: Session = Depends(get_session)
+) -> AgentOut:
     agent = _get_agent(db, agent_id)
+    changed: list[str] = []
+    details: dict[str, Any] = {}
     if body.office_id is not None and body.office_id != agent.office_id:
         if agent.is_central_manager:
             raise _conflict("The Central Manager works in Central Administration and cannot be moved.")
         if db.get(Office, body.office_id) is None:
             raise _not_found("Office")
         agent.office_id = body.office_id
+        changed.append("office_id")
     for field in (
         "display_name",
         "role",
@@ -381,51 +427,75 @@ def update_agent(agent_id: int, body: AgentPatch, db: Session = Depends(get_sess
         "provider",
     ):
         value = getattr(body, field)
-        if value is not None:
-            setattr(agent, field, value)
+        if value is None or value == getattr(agent, field):
+            continue
+        if field in ("allowed_tools", "permissions"):  # the audit log says exactly what was granted or taken
+            before = list(getattr(agent, field))
+            details[f"{field}_added"] = [item for item in value if item not in before]
+            details[f"{field}_removed"] = [item for item in before if item not in value]
+        setattr(agent, field, value)
+        changed.append(field)
+    if changed:
+        _audit(db, auth, "agent.updated", agent, f"Changed {', '.join(changed)} of '{agent.display_name}'.", **details)
     db.commit()
     return _load(db, agent_id)
 
 
 @router.post("/agents/{agent_id}/activate", response_model=AgentOut)
-def activate_agent(agent_id: int, db: Session = Depends(get_session)) -> AgentOut:
+def activate_agent(
+    agent_id: int, auth: AuthContext = Depends(current_auth), db: Session = Depends(get_session)
+) -> AgentOut:
     agent = _get_agent(db, agent_id)
     if agent.office_id is None:
         raise _conflict("This agent has no Office. Assign an Office before activating it.")
     if agent.lifecycle != "active":
+        previous = agent.lifecycle
         agent.lifecycle = "active"
         agent.runtime_state = "idle"
         agent.disabled_at = None
+        _audit(db, auth, "agent.activated", agent, f"Activated '{agent.display_name}' (it was {previous}).")
         db.commit()
     return _load(db, agent_id)
 
 
 @router.post("/agents/{agent_id}/pause", response_model=AgentOut)
-def pause_agent(agent_id: int, db: Session = Depends(get_session)) -> AgentOut:
+def pause_agent(
+    agent_id: int, auth: AuthContext = Depends(current_auth), db: Session = Depends(get_session)
+) -> AgentOut:
     agent = _get_agent(db, agent_id)
     _protect_central_manager(agent, "paused")
-    agent.lifecycle = "paused"
-    agent.runtime_state = "offline"
-    agent.disabled_at = None
-    db.commit()
+    if agent.lifecycle != "paused":
+        previous = agent.lifecycle
+        agent.lifecycle = "paused"
+        agent.runtime_state = "offline"
+        agent.disabled_at = None
+        _audit(db, auth, "agent.paused", agent, f"Paused '{agent.display_name}' (it was {previous}).")
+        db.commit()
     return _load(db, agent_id)
 
 
 @router.post("/agents/{agent_id}/disable", response_model=AgentOut)
-def disable_agent(agent_id: int, db: Session = Depends(get_session)) -> AgentOut:
+def disable_agent(
+    agent_id: int, auth: AuthContext = Depends(current_auth), db: Session = Depends(get_session)
+) -> AgentOut:
     agent = _get_agent(db, agent_id)
     _protect_central_manager(agent, "disabled")
     if agent.lifecycle != "disabled":
+        previous = agent.lifecycle
         agent.lifecycle = "disabled"
         agent.runtime_state = "offline"
         agent.disabled_at = utcnow()
+        _audit(db, auth, "agent.disabled", agent, f"Disabled '{agent.display_name}' (it was {previous}).")
         db.commit()
     return _load(db, agent_id)
 
 
 @router.delete("/agents/{agent_id}", response_model=AgentDeleted)
 def delete_agent(
-    agent_id: int, body: ConfirmDelete | None = Body(default=None), db: Session = Depends(get_session)
+    agent_id: int,
+    body: ConfirmDelete | None = Body(default=None),
+    auth: AuthContext = Depends(current_auth),
+    db: Session = Depends(get_session),
 ) -> AgentDeleted:
     agent = _get_agent(db, agent_id)
     _protect_central_manager(agent, "deleted")
@@ -439,6 +509,7 @@ def delete_agent(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail='Deletion must be confirmed with {"confirm_name": "<the exact name>"}',
         )
+    _audit(db, auth, "agent.deleted", agent, f"Deleted '{agent.display_name}' ({agent.role}). It had no history.")
     db.delete(agent)
     db.commit()
     return AgentDeleted(deleted=True)

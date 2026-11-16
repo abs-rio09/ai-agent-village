@@ -136,7 +136,7 @@ describe("app shell", () => {
     expect(BUILT_MILESTONE).toBe(3);
     // not part of M3: still honest placeholders
     expect(within(nav).getByRole("link", { name: /^Agent Chat\s*M4$/ })).toBeInTheDocument();
-    expect(within(nav).getByRole("link", { name: /^AI Model Settings\s*M4$/ })).toBeInTheDocument();
+    expect(within(nav).getByRole("link", { name: /^AI Model Settings\s*M9$/ })).toBeInTheDocument();
     expect(within(nav).getByRole("link", { name: /^Approval Center\s*M4$/ })).toBeInTheDocument();
   });
 

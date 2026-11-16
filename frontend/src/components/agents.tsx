@@ -323,9 +323,10 @@ export function OfficePicker({ tree, value, onChange, idPrefix }: OfficePickerPr
 
 export function EnforcementNote() {
   return (
-    <p role="note" className="rounded-xl border border-lantern-500/30 bg-lantern-500/10 px-4 py-3 text-sm text-lantern-200">
-      Tools and permissions are saved with the agent, but they are <strong className="font-semibold">not enforced yet</strong>: they
-      will be enforced in M4. Until then no tool can be run and nothing is limited by these choices.
+    <p role="note" className="rounded-xl border border-paddy-500/30 bg-paddy-500/10 px-4 py-3 text-sm text-paddy-200">
+      Tools and permissions are <strong className="font-semibold">enforced</strong>: an agent can only use a tool that is ticked here,
+      and only when it also has the permission that tool needs. Every use and every refusal is written to the audit log. A tool
+      marked “not built yet” can be assigned, but it answers “not available yet”.
     </p>
   );
 }
@@ -363,6 +364,11 @@ export function CatalogChecklist({ legend, items, selected, onChange }: Checklis
                 {item.sensitive && (
                   <span className="ml-2 rounded border border-clay-500/40 px-1 font-mono text-[10px] uppercase tracking-wider text-clay-300">
                     needs approval
+                  </span>
+                )}
+                {item.available === false && (
+                  <span className="ml-2 rounded border border-night-500 px-1 font-mono text-[10px] uppercase tracking-wider text-mist-400">
+                    not built yet
                   </span>
                 )}
               </span>

@@ -288,8 +288,8 @@ def test_0006_adds_lockout_and_device_columns_and_keeps_existing_sessions(env: P
         connection.execute(
             "INSERT INTO session (token_hash, user_id, created_at, expires_at) VALUES ('abc', 1, ?, '2099-01-01 00:00:00')", (now,)
         )
-    command.upgrade(config, "head")
-    assert check()["current"] == check()["head"] == "0006"
+    command.upgrade(config, "0006")  # (later revisions have their own tests)
+    assert check()["current"] == "0006"
     assert rows("SELECT value FROM app_meta WHERE key = 'schema_version'") == [("6",)]
     assert rows("SELECT token_hash, user_id, device_label, last_seen_at, revoked_at FROM session") == [("abc", 1, "", None, None)]
     assert rows("SELECT COUNT(*) FROM login_failure") == [(0,)]
@@ -550,7 +550,7 @@ def test_doctor_reports_bind_address_allowed_hosts_and_tailscale(migrated: Path,
     assert "PASS  hosts: VILLAGE_ALLOWED_HOSTS allows 127.0.0.1,[::1],localhost (this PC only)" in lines
     tailscale = [line for line in lines if line.startswith("INFO  tailscale:")]
     assert len(tailscale) == 1 and ("not installed" in tailscale[0] or "command found (not run" in tailscale[0])
-    assert "PASS  migration: at head (0006)" in lines
+    assert f"PASS  migration: at head ({check()['head']})" in lines
 
     remote = run_doctor(monkeypatch, VILLAGE_ALLOWED_HOSTS=f"https://{TAILNET_HOST}/")
     assert f"PASS  hosts: VILLAGE_ALLOWED_HOSTS allows 127.0.0.1,[::1],localhost,{TAILNET_HOST} (remote name: {TAILNET_HOST})" in remote.splitlines()
@@ -585,7 +585,8 @@ def test_start_refuses_to_run_new_code_on_an_unmigrated_database(env: Path, monk
         result = subprocess.run([str(ROOT_DIR / "village"), "start"], capture_output=True, text=True, timeout=60)
         output = result.stdout + result.stderr
         assert result.returncode != 0
-        assert "The database is at revision 0005 but this version of the Village needs 0006. Run: ./village setup" in output
+        head = check()["head"]
+        assert f"The database is at revision 0005 but this version of the Village needs {head}. Run: ./village setup" in output
         assert not pid_file.exists()  # nothing was started
         assert bindcheck.listening_addresses(port) == []
     finally:

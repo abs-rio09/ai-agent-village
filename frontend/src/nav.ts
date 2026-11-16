@@ -2,9 +2,9 @@
 //
 // `milestone` is the milestone in which a page gets built. Pages up to BUILT_MILESTONE exist
 // today; every other page renders an honest "Coming in M<n>" placeholder with no data.
-// NOTE: the M4-M8 assignment below is provisional — adjust it here if the build plan differs.
-// M3 built Agent Management, Agent Profile and the Task Center. Agent Chat and AI Model Settings
-// were not part of M3 and are parked on M4 until the owner says otherwise.
+// NOTE: the M5-M9 assignment below is provisional — adjust it here if the build plan differs.
+// M3 built Agent Management, Agent Profile and the Task Center. AI Model Settings is M9 (owner's
+// decision, DEV-M4). Agent Chat was not part of M3 or M4.
 
 import {
   Activity,
@@ -106,7 +106,7 @@ export const NAV_GROUPS: NavGroup[] = [
     label: "System",
     pages: [
       { id: "integrations", path: "/integrations", label: "Integration Settings", icon: Plug, milestone: 7, blurb: "Connector configuration and status (for example Messenger)." },
-      { id: "ai-models", path: "/ai-models", label: "AI Model Settings", icon: Cpu, milestone: 4, blurb: "Choose and test the AI provider: Demo, Ollama or Anthropic." },
+      { id: "ai-models", path: "/ai-models", label: "AI Model Settings", icon: Cpu, milestone: 9, blurb: "Choose and test the AI provider: Demo, Ollama or Anthropic." },
       // Built early by DEV-APP-01: only "Devices & sessions". The rest of the page is still M8.
       { id: "settings", path: "/settings", label: "Application Settings", icon: Settings, milestone: 8, builtEarly: true, blurb: "Village name, timezone, password and other application settings." },
       { id: "backup", path: "/backup", label: "Backup & Restore", icon: DatabaseBackup, milestone: 8, blurb: "Create and restore backups of the village." },

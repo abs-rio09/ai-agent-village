@@ -210,15 +210,21 @@ export interface CatalogItem {
   key: string;
   label: string;
   description: string;
-  /** Will always need the Chairman's approval once approvals exist (M4). */
+  /** A tool that always needs the Chairman's approval, or the permission such a tool requires. */
   sensitive: boolean;
+  // tools only (from the central registry):
+  risk?: "READ" | "WRITE" | "SENSITIVE" | null;
+  /** false = registered, but it answers "not available yet". */
+  available?: boolean;
+  planned_for?: string;
+  required_permission?: string | null;
 }
 
 export interface AgentOptions {
   tools: CatalogItem[];
   permissions: CatalogItem[];
   providers: string[];
-  /** False in M3: tools and permissions are stored, not enforced. */
+  /** True since M4: every tool call is checked against the agent's tools and permissions. */
   enforced: boolean;
 }
 
@@ -323,7 +329,7 @@ export interface AgentMessage {
   sender: AgentRef | null;
   receiver: AgentRef | null;
   task_id: number;
-  type: "delegation" | "result";
+  type: "delegation" | "result" | "info_request";
   payload: { routing?: Routing; status?: TaskStatus; output?: string | null; error?: string | null; [key: string]: unknown };
   created_at: string;
 }

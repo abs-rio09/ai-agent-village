@@ -206,7 +206,7 @@ class Office(Timestamps, Base):
 # ---------------------------------------------------------------- agents (M3)
 #
 # An agent belongs to an office; its Upazila, Union and Ward follow from that office and are
-# not stored again. Tools and permissions are stored only — nothing enforces them before M4.
+# not stored again. Tools and permissions are enforced by app/tools (check_tool_use) since M4.
 
 
 class AgentTemplate(Timestamps, Base):
@@ -301,7 +301,7 @@ class AgentMessage(Base):
 
     __tablename__ = "agent_message"
     __table_args__ = (
-        CheckConstraint("type IN ('delegation', 'result')", name="ck_agent_message_type"),
+        CheckConstraint("type IN ('delegation', 'result', 'info_request')", name="ck_agent_message_type"),
         Index("ix_agent_message_task_id", "task_id"),
     )
 
@@ -312,6 +312,35 @@ class AgentMessage(Base):
     type: Mapped[str] = mapped_column(String(20), nullable=False)
     payload: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utcnow)
+
+
+# ---------------------------------------------------------------- audit log (M4)
+#
+# Append-only: the application only inserts (app/audit.py) and the database refuses UPDATE and
+# DELETE with triggers. agent_id and task_id are plain numbers, not foreign keys — an audit
+# entry must outlive the thing it describes (agent_name keeps the name as it was).
+
+
+class AuditLog(Base):
+    __tablename__ = "audit_log"
+    __table_args__ = (
+        Index("ix_audit_log_action", "action"),
+        Index("ix_audit_log_agent_id", "agent_id"),
+        Index("ix_audit_log_task_id", "task_id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utcnow)
+    # "chairman:<username>", "agent:<id>" or "system"
+    actor: Mapped[str] = mapped_column(String(80), nullable=False)
+    action: Mapped[str] = mapped_column(String(48), nullable=False)  # "tool.denied", "agent.paused", …
+    agent_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    agent_name: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    task_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    tool_key: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    decision: Mapped[str | None] = mapped_column(String(16), nullable=True)  # allowed / denied / approved / …
+    summary: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    details: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
 
 
 def get_meta(session: Session, key: str) -> str | None:

@@ -5,6 +5,10 @@ A step is one of:
   2. start the next waiting task: the Central Manager routes a request of the Chairman,
      or an agent answers a delegated task through its provider.
 
+An agent's reply may ask for tools. Each request goes through `app.tools.call_tool`, which
+checks the agent's tools and permissions and writes the audit log; a refused or failed tool
+call fails the task with the reason.
+
 Every status change goes through `move_task`, which checks app.task_status and only changes a
 task that still has the status the caller saw — so a cancel from the API and the worker cannot
 overwrite each other. Tasks persist in the database: on start, a task a crash left RUNNING is
@@ -15,17 +19,20 @@ from __future__ import annotations
 
 import logging
 import threading
+from collections.abc import Sequence
 from typing import Any
 
 from sqlalchemy import case, exists, select, update
 from sqlalchemy.orm import Session, aliased, sessionmaker
 
+from app import audit
 from app import central_manager as manager_rules
 from app.api.agents import agent_rows_query, location_of
 from app.db import get_session_factory, utcnow
 from app.models import Agent, AgentMessage, Task
-from app.providers import AgentContext, TaskContext, get_provider
+from app.providers import AgentContext, AgentReply, TaskContext, ToolRequest, get_provider
 from app.task_status import ACTIVE, ASSIGNED, FAILED, QUEUED, RUNNING, SUCCEEDED, TERMINAL, ensure_transition
+from app.tools import call_tool
 
 log = logging.getLogger("village.tasks")
 
@@ -129,8 +136,8 @@ def recover_interrupted(db: Session) -> int:
 # ---------------------------------------------------------------- the steps
 
 
-def _fail(db: Session, task: Task, reason: str) -> None:
-    if move_task(db, task, FAILED, error=reason):
+def _fail(db: Session, task: Task, reason: str, **values: Any) -> None:
+    if move_task(db, task, FAILED, error=reason, **values):
         _report_to_parent(db, task)
     settle_agent(db, task.assigned_agent_id)
     db.commit()
@@ -142,7 +149,13 @@ def _finish_parent(db: Session, task: Task) -> None:
     if any(child.status == SUCCEEDED for child in children):
         ids = [child.assigned_agent_id for child in children if child.assigned_agent_id is not None]
         names = dict(db.execute(select(Agent.id, Agent.display_name).where(Agent.id.in_(ids))).all())
-        moved = move_task(db, task, SUCCEEDED, output=manager_rules.final_report(task, children, names), error=None)
+        owner = db.get(Agent, task.assigned_agent_id) if task.assigned_agent_id is not None else None
+        if owner is not None and not owner.is_central_manager:
+            # an ordinary agent that handed work on: its own reply, then what came back
+            output = "\n\n".join(part for part in (task.output, manager_rules.child_results(children, names)) if part)
+        else:
+            output = manager_rules.final_report(task, children, names)
+        moved = move_task(db, task, SUCCEEDED, output=output, error=None)
     else:
         reasons = "; ".join(f"task #{child.id} {child.status}" + (f" ({child.error})" if child.error else "") for child in children)
         moved = move_task(db, task, FAILED, error=f"None of the delegated tasks succeeded: {reasons}")
@@ -175,13 +188,60 @@ def _route(db: Session, task: Task) -> None:
     if routing.row is None:
         _fail(db, task, routing.reason or "The request could not be routed.")
         return
-    try:
-        manager_rules.delegate(db, task, routing.row[0], routing.details)
-    except manager_rules.DelegationDepthError as exc:
-        db.rollback()
-        _fail(db, task, str(exc))
+    # Delegation is a tool call like any other: checked against the manager's own tools and
+    # permissions, and written to the audit log.
+    outcome = call_tool(
+        db,
+        manager,
+        task,
+        "task.create_child",
+        {"agent_id": routing.row[0].id, "routing": routing.details},
+        reason="Routing a request of the Chairman.",
+    )
+    if not outcome.ok:
+        _fail(db, task, f"The Central Manager could not delegate this request. {outcome.summary}")
         return
     settle_agent(db, manager.id)  # waiting for the child task
+    db.commit()
+
+
+def _as_reply(reply: str | AgentReply) -> AgentReply:
+    return reply if isinstance(reply, AgentReply) else AgentReply(text=str(reply))
+
+
+def _tool_line(name: str, summary: str) -> str:
+    return f"[Tool] {name}: {summary}"
+
+
+def _run_tool_calls(db: Session, task: Task, agent: Agent, output: str, calls: Sequence[ToolRequest]) -> None:
+    """Run the tools an agent asked for, in order, then finish the task (or leave it RUNNING
+    while child tasks it created are still open). Everything here is ONE transaction: if the
+    task was cancelled meanwhile, `move_task` loses the race and nothing of it is kept."""
+    for call in calls:
+        outcome = call_tool(db, agent, task, call.tool, call.args, reason=call.reason)
+        if not outcome.ok:
+            prefix = "Tool call refused. " if outcome.status == "denied" else ""
+            _fail(db, task, f"{prefix}{outcome.summary}", output=output)
+            return
+        output = f"{output}\n\n{_tool_line(outcome.tool_name, outcome.summary)}"
+
+    open_children = db.execute(
+        select(Task.id).where(Task.parent_task_id == task.id, Task.status.in_(ACTIVE)).limit(1)
+    ).first()
+    if open_children:  # it created child tasks: keep RUNNING, _finish_parent completes it later
+        db.execute(
+            update(Task)
+            .where(Task.id == task.id, Task.status == RUNNING)
+            .values(output=output, updated_at=utcnow())
+            .execution_options(synchronize_session=False)
+        )
+        settle_agent(db, agent.id)
+        db.commit()
+        return
+    # A cancel may have arrived while the provider was working: then the task stays CANCELLED.
+    if move_task(db, task, SUCCEEDED, output=output, error=None):
+        _report_to_parent(db, task)
+    settle_agent(db, agent.id)
     db.commit()
 
 
@@ -196,7 +256,14 @@ def _work(db: Session, task: Task) -> None:
         _fail(db, task, "The Central Manager does not do delegated work itself.")
         return
     if agent.lifecycle != "active":  # paused or disabled after the task was handed over
-        _fail(db, task, f"'{agent.display_name}' is {agent.lifecycle}, so it did not receive this task.")
+        reason = f"'{agent.display_name}' is {agent.lifecycle}, so it did not receive this task."
+        if move_task(db, task, FAILED, error=reason):
+            audit.record(
+                db, "agent.work_denied", agent=agent, task_id=task.id, decision="denied", summary=reason
+            )
+            _report_to_parent(db, task)
+        settle_agent(db, task.assigned_agent_id)
+        db.commit()
         return
     if task.status == QUEUED and not move_task(db, task, ASSIGNED):
         return
@@ -204,6 +271,12 @@ def _work(db: Session, task: Task) -> None:
         return
     _set_runtime(db, agent.id, "working")
     db.commit()
+
+    has_children = db.execute(select(Task.id).where(Task.parent_task_id == task.id).limit(1)).first()
+    if has_children:  # worked before a restart and handed work on: do not start again, wait
+        settle_agent(db, agent.id)
+        db.commit()
+        return
 
     provider = get_provider(agent.provider)
     context = AgentContext(
@@ -214,22 +287,12 @@ def _work(db: Session, task: Task) -> None:
         location=location_of(office, ward, union, upazila).path if office is not None else "",
     )
     try:
-        reply = provider.reply(context, TaskContext(title=task.title, description=task.description))
-        outcome: dict[str, Any] = {"status": SUCCEEDED, "output": reply, "error": None}
+        reply = _as_reply(provider.reply(context, TaskContext(title=task.title, description=task.description)))
     except Exception as exc:  # noqa: BLE001  (a provider failure must not stop the queue)
         log.warning("task %s: the %s provider failed (%s)", task.id, provider.name, type(exc).__name__)
-        outcome = {"status": FAILED, "error": f"The {provider.name} provider failed ({type(exc).__name__})."}
-
-    # A cancel may have arrived while the provider was working: then the task stays CANCELLED.
-    if move_task(db, task, outcome.pop("status"), **outcome):
-        _report_to_parent(db, task)
-    db.execute(
-        update(Agent)
-        .where(Agent.id == agent.id, Agent.runtime_state == "working")
-        .values(runtime_state="idle")
-        .execution_options(synchronize_session=False)
-    )
-    db.commit()
+        _fail(db, task, f"The {provider.name} provider failed ({type(exc).__name__}).")
+        return
+    _run_tool_calls(db, task, agent, reply.text, reply.tool_calls)
 
 
 def _next_step(db: Session) -> tuple[str, Task] | None:

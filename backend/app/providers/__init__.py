@@ -7,7 +7,7 @@ working provider and Demo Mode needs nothing.
 
 from __future__ import annotations
 
-from app.providers.base import AgentContext, Provider, TaskContext
+from app.providers.base import AgentContext, AgentReply, Provider, TaskContext, ToolRequest
 from app.providers.demo import DEMO_PREFIX, DemoProvider
 
 _DEMO = DemoProvider()
@@ -39,9 +39,11 @@ def get_provider(name: str | None = None) -> Provider:
 __all__ = [
     "DEMO_PREFIX",
     "AgentContext",
+    "AgentReply",
     "DemoProvider",
     "Provider",
     "TaskContext",
+    "ToolRequest",
     "get_provider",
     "provider_names",
     "register_provider",

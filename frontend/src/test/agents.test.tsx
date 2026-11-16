@@ -144,9 +144,10 @@ describe("New agent wizard", () => {
     await next();
 
     // 5. tools & permissions, with the honest note
-    expect(screen.getByRole("note")).toHaveTextContent("not enforced yet");
-    expect(screen.getByRole("note")).toHaveTextContent("enforced in M4");
+    expect(screen.getByRole("note")).toHaveTextContent("Tools and permissions are enforced");
+    expect(screen.getByRole("note")).toHaveTextContent("written to the audit log");
     expect(screen.getByRole("checkbox", { name: /Read permitted documents/ })).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: /Read permitted documents/ })).toHaveAccessibleName(/not built yet/);
     expect(screen.getByRole("checkbox", { name: /Create task/ })).not.toBeChecked();
     expect(screen.getByRole("checkbox", { name: /Spend money/ })).toHaveAccessibleName(/needs approval/);
     await user.click(screen.getByRole("checkbox", { name: /Read calendar/ })); // remove one
@@ -162,7 +163,7 @@ describe("New agent wizard", () => {
       role: "Study Assistant",
       description: "Exam plans only",
       system_instructions: "You are a study assistant.",
-      allowed_tools: ["read_documents", "create_task"],
+      allowed_tools: ["document.read", "task.create_child"],
       permissions: ["read_upazila_memory"],
       activate: true,
     });
@@ -302,7 +303,7 @@ describe("Agent Profile", () => {
       ...MINA,
       role: "Exam Coach",
       office_id: 1112,
-      allowed_tools: ["read_documents", "read_calendar", "create_task"],
+      allowed_tools: ["document.read", "calendar.read", "task.create_child"],
       updated_at: "2026-11-15T11:00:00Z",
     };
     const routes: Parameters<typeof mockFetch>[0] = {
@@ -320,7 +321,7 @@ describe("Agent Profile", () => {
     expect(save).toBeDisabled();
     expect(within(form).getByLabelText("Agent name")).toHaveValue("Mina");
     expect(within(form).getByLabelText("Ward")).toHaveValue("111"); // its current office
-    expect(within(form).getByRole("note")).toHaveTextContent("enforced in M4");
+    expect(within(form).getByRole("note")).toHaveTextContent("Tools and permissions are enforced");
 
     const role = within(form).getByLabelText("Role");
     await user.clear(role);
@@ -333,7 +334,7 @@ describe("Agent Profile", () => {
     expect(callsTo("PATCH /api/agents/2")[0]!.json).toEqual({
       role: "Exam Coach",
       office_id: 1112,
-      allowed_tools: ["read_documents", "read_calendar", "create_task"],
+      allowed_tools: ["document.read", "calendar.read", "task.create_child"],
     });
     // the form survives the reload: the confirmation shows and there is nothing left to save
     expect(await within(form).findByRole("status")).toHaveTextContent("Saved.");

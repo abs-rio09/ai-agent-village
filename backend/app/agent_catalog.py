@@ -1,8 +1,8 @@
-"""Agent catalogue: the tool and permission keys an agent can hold, and the 15 agent templates
-of docs/SPEC.md §6. This is the data that `app.seed` writes into the database.
+"""Agent catalogue: the permission keys an agent can hold, and the 15 agent templates of
+docs/SPEC.md §6. This is the data that `app.seed` writes into the database.
 
-M3 only STORES tools and permissions on an agent. Nothing here is enforced and no tool can be
-executed yet — enforcement, the tool registry and approvals are M4.
+The TOOLS an agent can be given live in the central registry (app/tools). Tools and permissions
+are enforced since M4: see `app.tools.check_tool_use`.
 """
 
 from __future__ import annotations
@@ -15,22 +15,8 @@ class CatalogItem:
     key: str
     label: str
     description: str
-    sensitive: bool = False  # will always need the Chairman's approval once approvals exist (M4)
+    sensitive: bool = False  # guards a tool that always needs the Chairman's approval
 
-
-# docs/SPEC.md §8E examples. There is deliberately no shell, terminal or free filesystem tool.
-TOOLS: tuple[CatalogItem, ...] = (
-    CatalogItem("read_documents", "Read permitted documents", "Read documents the agent has been given access to."),
-    CatalogItem("search_knowledge", "Search local knowledge", "Search the village's local knowledge base."),
-    CatalogItem("create_document", "Create a document", "Write a new document into the village's document folder."),
-    CatalogItem("generate_pdf", "Generate PDF", "Turn a report or document into a PDF file."),
-    CatalogItem("create_task", "Create task", "Create a task for itself or for the Central Manager."),
-    CatalogItem("ask_agent", "Ask another agent", "Request information from another agent."),
-    CatalogItem("read_calendar", "Read calendar", "Read the configured calendar data."),
-    CatalogItem("get_product_info", "Product information", "Look up product information."),
-    CatalogItem("check_inventory", "Verify inventory", "Check stock levels."),
-    CatalogItem("system_health_check", "System health check", "Run the village's built-in, read-only health checks."),
-)
 
 PERMISSIONS: tuple[CatalogItem, ...] = (
     CatalogItem("read_village_memory", "Read village memory", "Read information shared with the whole village."),
@@ -44,7 +30,6 @@ PERMISSIONS: tuple[CatalogItem, ...] = (
     CatalogItem("delete_files", "Delete files", "Delete documents or other files.", sensitive=True),
 )
 
-TOOL_KEYS = frozenset(item.key for item in TOOLS)
 PERMISSION_KEYS = frozenset(item.key for item in PERMISSIONS)
 
 LIFECYCLES = ("active", "paused", "disabled")
@@ -64,7 +49,8 @@ class AgentTemplateSeed:
     default_permissions: tuple[str, ...] = field(default=("read_upazila_memory", "write_agent_memory"))
 
 
-_READ = ("read_documents", "search_knowledge")
+_READ = ("document.read", "knowledge.search")
+_MEMORY = ("memory.read", "memory.write")  # every template; what they may see is decided per scope
 
 # The 15 templates of docs/SPEC.md §6, in the order the SPEC lists them.
 AGENT_TEMPLATES: tuple[AgentTemplateSeed, ...] = (
@@ -77,7 +63,7 @@ AGENT_TEMPLATES: tuple[AgentTemplateSeed, ...] = (
         "You are the Central Manager of the village. Classify every request, find the Upazila and Office it belongs "
         "to and delegate it to an active agent there. Collect the results and write the final report. "
         "Never do the work yourself. Ask the Chairman before anything sensitive.",
-        ("create_task", "ask_agent", "search_knowledge"),
+        ("task.create_child", "agent.request_info", "knowledge.search", "org.read", *_MEMORY),
         ("read_village_memory", "delegate_tasks", "write_agent_memory"),
     ),
     AgentTemplateSeed(
@@ -88,7 +74,7 @@ AGENT_TEMPLATES: tuple[AgentTemplateSeed, ...] = (
         "office",
         "You manage one Office. Keep its tasks in order, hand work to the right agent in the Office and report "
         "progress to the Central Manager.",
-        (*_READ, "create_task", "ask_agent"),
+        (*_READ, "task.create_child", "agent.request_info", "org.read", *_MEMORY),
         ("read_upazila_memory", "delegate_tasks", "write_agent_memory"),
     ),
     AgentTemplateSeed(
@@ -99,7 +85,7 @@ AGENT_TEMPLATES: tuple[AgentTemplateSeed, ...] = (
         "helper",
         "You are a helper. Do small routine jobs for your Office: collect information, file documents and carry "
         "messages. Ask your Office Manager when a request is unclear.",
-        (*_READ, "ask_agent"),
+        (*_READ, "agent.request_info", *_MEMORY),
     ),
     AgentTemplateSeed(
         "study_assistant",
@@ -109,7 +95,7 @@ AGENT_TEMPLATES: tuple[AgentTemplateSeed, ...] = (
         "student",
         "You are a study assistant. Help the Chairman plan study time, track assignments and deadlines, and prepare "
         "for exams. Break work into small steps and keep the plan realistic.",
-        (*_READ, "create_document", "read_calendar"),
+        (*_READ, "document.create", "calendar.read", *_MEMORY),
     ),
     AgentTemplateSeed(
         "teacher_tutor",
@@ -119,7 +105,7 @@ AGENT_TEMPLATES: tuple[AgentTemplateSeed, ...] = (
         "teacher",
         "You are a tutor. Explain topics step by step in simple language, give short practice questions and check "
         "the answers. Say clearly when you are not sure.",
-        (*_READ, "create_document"),
+        (*_READ, "document.create", *_MEMORY),
     ),
     AgentTemplateSeed(
         "research_librarian",
@@ -129,7 +115,7 @@ AGENT_TEMPLATES: tuple[AgentTemplateSeed, ...] = (
         "librarian",
         "You are a research librarian. Find relevant sources in the permitted documents, summarise them and keep "
         "references organised. Never invent a citation.",
-        (*_READ, "create_document", "generate_pdf"),
+        (*_READ, "document.create", "pdf.generate", *_MEMORY),
     ),
     AgentTemplateSeed(
         "business_manager",
@@ -139,7 +125,7 @@ AGENT_TEMPLATES: tuple[AgentTemplateSeed, ...] = (
         "business",
         "You are a business manager. Help plan strategy, products and operations. State your assumptions and never "
         "commit money or publish anything without the Chairman's approval.",
-        (*_READ, "create_document", "get_product_info", "create_task"),
+        (*_READ, "document.create", "product.read", "task.create_child", *_MEMORY),
         ("read_upazila_memory", "delegate_tasks", "write_agent_memory"),
     ),
     AgentTemplateSeed(
@@ -150,7 +136,7 @@ AGENT_TEMPLATES: tuple[AgentTemplateSeed, ...] = (
         "sales",
         "You are a sales assistant. Answer product questions from the product information, prepare offers and "
         "follow-ups. Do not send anything to a customer without approval.",
-        ("get_product_info", "check_inventory", "create_document"),
+        ("product.read", "inventory.check", "document.create", *_MEMORY),
     ),
     AgentTemplateSeed(
         "customer_support",
@@ -160,7 +146,7 @@ AGENT_TEMPLATES: tuple[AgentTemplateSeed, ...] = (
         "support",
         "You are a customer support agent. Draft polite and accurate replies. Keep private customer information "
         "out of shared memory and never promise a refund yourself.",
-        ("get_product_info", "check_inventory", "search_knowledge", "create_document"),
+        ("product.read", "inventory.check", "knowledge.search", "document.create", *_MEMORY),
     ),
     AgentTemplateSeed(
         "accountant",
@@ -170,7 +156,7 @@ AGENT_TEMPLATES: tuple[AgentTemplateSeed, ...] = (
         "accountant",
         "You are an accountant. Keep income and expense records tidy and prepare clear summaries. You never move "
         "or spend money; you only record and report.",
-        (*_READ, "create_document", "generate_pdf"),
+        (*_READ, "document.create", "pdf.generate", *_MEMORY),
     ),
     AgentTemplateSeed(
         "daily_reporter",
@@ -180,7 +166,7 @@ AGENT_TEMPLATES: tuple[AgentTemplateSeed, ...] = (
         "reporter",
         "You are the daily reporter. Collect what was done today, what is pending and what needs the Chairman's "
         "attention, and write a short, honest report.",
-        (*_READ, "create_document", "generate_pdf", "ask_agent"),
+        (*_READ, "document.create", "pdf.generate", "agent.request_info", *_MEMORY),
         ("read_village_memory", "read_upazila_memory", "write_agent_memory"),
     ),
     AgentTemplateSeed(
@@ -192,7 +178,7 @@ AGENT_TEMPLATES: tuple[AgentTemplateSeed, ...] = (
         "You are a general wellness assistant. Give general health information and wellness guidance only. "
         "You must not diagnose any condition and you must not prescribe or recommend any medicine, dose or "
         "treatment. For symptoms, an emergency or any medical decision, tell the Chairman to see a qualified doctor.",
-        ("search_knowledge",),
+        ("knowledge.search", *_MEMORY),
     ),
     AgentTemplateSeed(
         "repair_technician",
@@ -204,7 +190,7 @@ AGENT_TEMPLATES: tuple[AgentTemplateSeed, ...] = (
         "assigned to you. You have no terminal access and must never run or suggest running arbitrary commands "
         "on the Chairman's behalf. Describe the problem, the likely cause and safe steps, and ask for approval "
         "before any change.",
-        ("system_health_check", "read_documents", "search_knowledge"),
+        ("system.health_check", "document.read", "knowledge.search", *_MEMORY),
     ),
     AgentTemplateSeed(
         "technical_support",
@@ -214,7 +200,7 @@ AGENT_TEMPLATES: tuple[AgentTemplateSeed, ...] = (
         "techsupport",
         "You are a technical support agent. Explain how to use the village and answer how-to questions with clear, "
         "numbered steps.",
-        (*_READ, "ask_agent"),
+        (*_READ, "agent.request_info", *_MEMORY),
     ),
     AgentTemplateSeed(
         "project_manager",
@@ -224,7 +210,7 @@ AGENT_TEMPLATES: tuple[AgentTemplateSeed, ...] = (
         "project",
         "You are a project manager. Break a project into milestones and tasks, name the risks and follow up on "
         "progress. Keep plans small enough to finish.",
-        (*_READ, "create_document", "create_task", "ask_agent"),
+        (*_READ, "document.create", "task.create_child", "agent.request_info", *_MEMORY),
         ("read_upazila_memory", "delegate_tasks", "write_agent_memory"),
     ),
 )
@@ -233,5 +219,5 @@ CENTRAL_MANAGER_TEMPLATE_KEY = "village_manager"
 CENTRAL_MANAGER_NAME = "Central Manager"
 
 for _template in AGENT_TEMPLATES:  # the catalogue must be consistent with itself
-    assert set(_template.default_tools) <= TOOL_KEYS, _template.key
     assert set(_template.default_permissions) <= PERMISSION_KEYS, _template.key
+# (that every default tool is a registered tool is checked in app/tools/__init__.py)

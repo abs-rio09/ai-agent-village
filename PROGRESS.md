@@ -24,6 +24,10 @@ Milestone **M3 — Agents & Tasks**: Parts A, B and C are **built and committed,
 by the owner**. Checked on a scratch database and port 8013 only; the live village on port 8000
 was not touched and still runs the older code (see "How to verify M3 on the live village").
 
+Milestone **M4 — Control**: Part A (tool registry, permission checks, audit log) is **built and
+committed, not yet accepted by the owner**. Parts B (approvals) and C (memory, scheduler) follow.
+Checked with the test suites and on a scratch server (port 8013); the live village was not touched.
+
 ## Done
 ### M1 Part A — scaffold, backend core, `./village` CLI
 - Project layout, `.gitignore`, `backend/requirements.txt` (installs on Python 3.14.4;
@@ -519,6 +523,69 @@ was not touched and still runs the older code (see "How to verify M3 on the live
   screen (it did not fire in the fresh browser context; covered by Vitest), `shellcheck` on the
   changed `village` script (not installed here; `bash -n` passes).
 
+### M4 Part A — tool registry, permission checks, audit log (2026-11-16)
+- **Tool registry** `backend/app/tools/` (`base.py` types + registry, `builtin.py` the tools,
+  `calls.py` enforcement). 17 tools. Each has key, name, description, risk (READ / WRITE /
+  SENSITIVE), required permission and a `run()` that receives only a `ToolContext` (agent, task,
+  database session) — no path, no shell, no network.
+  - Real, database-only: `task.create_child` (WRITE, needs "Delegate tasks"), `agent.request_info`
+    (READ; records an `info_request` agent message — **agents do not answer such requests on their
+    own yet**, the tool result says so), `org.read` (READ).
+  - `memory.read` / `memory.write`: registered, answer "not available yet" until Part C.
+  - SENSITIVE placeholders `message.send_external`, `file.delete`, `money.spend`,
+    `marketing.publish`: **never executed in Part A** — the call is refused with "needs the
+    Chairman's approval, and approvals are not available yet". Part B adds the approval flow.
+  - The eight other M3 tools (documents, knowledge search, PDF, calendar, products, inventory,
+    health check) are registered so they can stay assigned, but answer "not available yet"
+    (planned M6–M8). Nothing is simulated.
+- **Tool keys were renamed** to `area.verb` (`create_task` → `task.create_child`, `ask_agent` →
+  `agent.request_info`, `read_documents` → `document.read`, …). The registry is now the only list
+  of tools; `agent_catalog.py` keeps permissions and templates.
+- **Enforcement**: `check_tool_use(agent, tool)` — denied when the agent is not ACTIVE, the tool is
+  not assigned, or the permission is missing. `call_tool` is the only caller of a tool's `run()`
+  and writes the audit entry. A provider reply may now ask for tools (`AgentReply.tool_calls`);
+  the task runner runs them in order. **A refused or failed tool call fails the task** with the
+  reason (the output so far is kept). The Central Manager's delegation goes through
+  `task.create_child` too, so removing that tool or the "Delegate tasks" permission from the
+  Central Manager makes every request fail with a readable reason.
+- An agent that creates a child task stays RUNNING ("waiting") until the child is done, then its
+  own reply plus the child's result becomes its output.
+- **Audit log**: table `audit_log` + `backend/app/audit.py`. Written for tool allowed / denied /
+  unavailable / error, a paused agent refusing work (`agent.work_denied`), agent created / updated
+  (with the tools and permissions added or removed) / activated / paused / disabled / deleted
+  (also when an Office is deleted), login, failed login, lockout, logout, session revoked, and the
+  first-run setup. Append-only: no update/delete function or API, and two database triggers
+  refuse UPDATE and DELETE. Details are cleaned (credential-like names dropped, key-like strings
+  masked, long texts cut). A failed login never stores the typed username unless it is a real
+  admin name; the same actor gets at most one failed-login entry a minute.
+  "Settings changes": the only settings API that exists is the first-run setup and the session
+  revokes — both are audited. There is no other settings API yet (M8).
+- Migration `0007_tools_audit.py` (schema_version 7): `audit_log` + triggers, `agent_message.type`
+  also allows `info_request`, tool keys renamed on agents and templates, templates get
+  `memory.read`/`memory.write` (and `org.read` for the two manager templates). **Existing agents
+  only get the rename — no agent is given a new tool by the migration.**
+- API: `GET /api/tools`, `GET /api/audit` (`agent_id`, `task_id`, `action` = exact action or a
+  group such as `tool`; `limit` ≤ 200, `offset`; returns `items`, `total`, `actions`).
+  `GET /api/agent-options` now lists the registry and says `enforced: true`.
+- Also done: `docs/DECISIONS.md` added; `nav.ts` marks AI Model Settings as M9; the agent forms
+  say tools and permissions are enforced and tag unbuilt tools "not built yet".
+- Fixed on the way: a circular import (`app.task_runner` ↔ `app.api`) that only showed when
+  `app.task_runner` was imported first.
+- Tests: pytest **349 passed, 1 skipped** (shellcheck); 25 new in `tests/test_m4_tools.py`
+  (0006→0007→0006→head on M3-shaped data, registry, each denial rule, denied + audited, paused
+  agent, messages and delegated tasks cannot grant tools, the real tools, unbuilt and sensitive
+  tools never run, audit content, no secrets, append-only, API filters/paging, 401 without a
+  session). Four older tests that pinned "head is 0006" / M3 tool keys were adjusted. Vitest
+  **116 passed**; `tsc --noEmit` ok.
+- Checked on a real server (scratch DB/.env, port 8013, stopped afterwards): setup, Study
+  structure, a Study Assistant, the exam request SUCCEEDED, pause → next request FAILED, 401 on
+  both new routes without a session, `/api/audit` listed setup, agent created, the Central
+  Manager's `tool.allowed` and the pause. No error in the server log.
+- **Not tested / not done in Part A:** nothing of this was looked at in a browser (there is no
+  Audit Log page yet — Part B); `agent.request_info`, `org.read` and an agent's own
+  `task.create_child` have no Demo phrase, so in the browser only the Central Manager's
+  delegation produces tool events (they are covered by pytest with a scripted test provider).
+
 ## How to verify APP-01 on desktop and Android
 First update the live village (migration 0006 and a new frontend build):
 `./village stop && ./village setup && ./village start`. Details for every step: `docs/MOBILE.md`.
@@ -583,7 +650,7 @@ frontend), log in, then:
 8. Overview again: the four counts match.
 
 ## In progress
-- Nothing. M3 has not been started.
+- M4: Part A committed; Parts B (approvals) and C (memory scopes, scheduler) are next.
 
 ## Broken & known issues
 - `VILLAGE_SECRET_KEY` is required and generated, but nothing uses it yet (session tokens are
@@ -630,6 +697,11 @@ frontend), log in, then:
 - shellcheck is not installed on this PC, so the everyday test run skips that test
   (`sudo apt install shellcheck` to enable it). It was run once with shellcheck 0.11.0 from a
   scratch install during DEV-DOCS-01 and `village` passed.
+- SQLite re-uses the id of a deleted agent for the next new agent (only an agent without history
+  can be deleted, and only the newest id is re-used). Audit entries keep `agent_name`, so the two
+  can be told apart, but a filter by `agent_id` shows both.
+- A refused tool call fails the whole task. That is right for Demo Mode; a real AI provider
+  (M9) should get the refusal back and may continue.
 - Starlette prints a deprecation warning that its TestClient will prefer `httpx2` over `httpx`;
   harmless today.
 

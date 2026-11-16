@@ -15,10 +15,12 @@ from sqlalchemy import delete, func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app import audit
 from app.api.fields import Description, IconKey, Name, Responsibility
 from app.db import get_session, utcnow
 from app.limits import MAX_WARDS_PER_UNION
 from app.models import Agent, Office, UnionTemplate, UnionUnit, Upazila, UpazilaTemplate, Village, Ward, WardTemplate
+from app.security import AuthContext, current_auth
 
 router = APIRouter(tags=["organization"])
 
@@ -337,10 +339,20 @@ def _next_sort_order(db: Session, column, *where) -> int:  # noqa: ANN001, ANN00
     return (db.execute(select(func.max(column)).where(*where)).scalar_one() or 0) + 1
 
 
-def _release_agents(db: Session, office_ids) -> int:  # noqa: ANN001
+def _release_agents(db: Session, office_ids, actor: str, unit: str) -> int:  # noqa: ANN001
     """Offices are about to be deleted: their agents are kept (with their history) but lose the
     office and are disabled. Returns how many agents that was. The caller commits."""
     now = utcnow()
+    agents = db.execute(select(Agent).where(Agent.office_id.in_(office_ids))).scalars().all()
+    for agent in agents:
+        audit.record(
+            db,
+            "agent.disabled",
+            actor=actor,
+            agent=agent,
+            summary=f"'{agent.display_name}' lost its Office and was disabled: {unit} was deleted.",
+            details={"previous_lifecycle": agent.lifecycle},
+        )
     result = db.execute(
         update(Agent)
         .where(Agent.office_id.in_(office_ids))
@@ -461,7 +473,10 @@ def update_upazila(upazila_id: int, body: UpazilaPatch, db: Session = Depends(ge
 
 @router.delete("/upazilas/{upazila_id}", response_model=DeleteResult)
 def delete_upazila(
-    upazila_id: int, body: ConfirmDelete | None = Body(default=None), db: Session = Depends(get_session)
+    upazila_id: int,
+    body: ConfirmDelete | None = Body(default=None),
+    auth: AuthContext = Depends(current_auth),
+    db: Session = Depends(get_session),
 ) -> DeleteResult:
     upazila = _get_upazila(db, upazila_id)
     _require_confirmation(body, upazila.name)
@@ -472,6 +487,8 @@ def delete_upazila(
         .join(Ward, Ward.id == Office.ward_id)
         .join(UnionUnit, UnionUnit.id == Ward.union_id)
         .where(UnionUnit.upazila_id == upazila_id),
+        audit.chairman(auth.user.username),
+        f"the Upazila '{upazila.name}'",
     )
     db.execute(delete(Upazila).where(Upazila.id == upazila_id))  # FKs cascade to unions, wards, offices
     db.commit()
@@ -628,13 +645,19 @@ def update_union(union_id: int, body: UnionPatch, db: Session = Depends(get_sess
 
 @router.delete("/unions/{union_id}", response_model=DeleteResult)
 def delete_union(
-    union_id: int, body: ConfirmDelete | None = Body(default=None), db: Session = Depends(get_session)
+    union_id: int,
+    body: ConfirmDelete | None = Body(default=None),
+    auth: AuthContext = Depends(current_auth),
+    db: Session = Depends(get_session),
 ) -> DeleteResult:
     union = _get_union(db, union_id)
     _require_confirmation(body, union.name)
     counts = _union_counts(db, union_id=union_id).get(union_id, UnionCounts())
     agents = _release_agents(
-        db, select(Office.id).join(Ward, Ward.id == Office.ward_id).where(Ward.union_id == union_id)
+        db,
+        select(Office.id).join(Ward, Ward.id == Office.ward_id).where(Ward.union_id == union_id),
+        audit.chairman(auth.user.username),
+        f"the Union '{union.name}'",
     )
     db.execute(delete(UnionUnit).where(UnionUnit.id == union_id))  # FKs cascade to wards and offices
     db.commit()
@@ -707,12 +730,20 @@ def update_ward(ward_id: int, body: WardPatch, db: Session = Depends(get_session
 
 @router.delete("/wards/{ward_id}", response_model=DeleteResult)
 def delete_ward(
-    ward_id: int, body: ConfirmDelete | None = Body(default=None), db: Session = Depends(get_session)
+    ward_id: int,
+    body: ConfirmDelete | None = Body(default=None),
+    auth: AuthContext = Depends(current_auth),
+    db: Session = Depends(get_session),
 ) -> DeleteResult:
     ward = _get_ward(db, ward_id)
     _require_confirmation(body, ward.name)
     offices = db.execute(select(func.count()).select_from(Office).where(Office.ward_id == ward_id)).scalar_one()
-    agents = _release_agents(db, select(Office.id).where(Office.ward_id == ward_id))
+    agents = _release_agents(
+        db,
+        select(Office.id).where(Office.ward_id == ward_id),
+        audit.chairman(auth.user.username),
+        f"Ward {ward.number} '{ward.name}'",
+    )
     db.execute(delete(Ward).where(Ward.id == ward_id))  # the FK cascades to the ward's office
     db.commit()
     return DeleteResult(deleted=True, wards=1, offices=offices, agents_disabled=agents)

@@ -12,7 +12,7 @@ import pytest
 from alembic import command
 from fastapi.testclient import TestClient
 
-from app.agent_catalog import AGENT_TEMPLATES, PERMISSION_KEYS, TOOL_KEYS
+from app.agent_catalog import AGENT_TEMPLATES, PERMISSION_KEYS
 from app.config import get_settings
 from app.db import get_engine
 from app.dbcheck import alembic_config
@@ -28,8 +28,11 @@ from app.providers import (
     unregister_provider,
 )
 from app.seed import seed_agents, seed_if_migrated
+from app.tools import tool_keys
 from tests.test_m2_org import api, delete, make_upazila, ok, study  # noqa: F401  (api is a fixture)
 from tests.test_part_b_auth import api_routes
+
+TOOL_KEYS = tool_keys()  # the central registry (app/tools) is the catalogue of tools since M4
 
 # docs/SPEC.md §6, in the SPEC's order.
 SPEC_AGENT_TEMPLATES = [
@@ -166,7 +169,7 @@ def test_doctor_and_repair_templates_are_limited(api: TestClient) -> None:  # no
     options = ok(api.get("/api/agent-options"))
     assert {item["key"] for item in options["tools"]} == TOOL_KEYS
     assert {item["key"] for item in options["permissions"]} == PERMISSION_KEYS
-    assert options["enforced"] is False and options["providers"] == ["demo"]
+    assert options["enforced"] is True and options["providers"] == ["demo"]  # enforced since M4
     # sensitive permissions are never a default
     sensitive = {item["key"] for item in options["permissions"] if item["sensitive"]}
     assert sensitive and not any(sensitive & set(item.default_permissions) for item in AGENT_TEMPLATES)
@@ -285,13 +288,13 @@ def test_create_accepts_overrides_and_can_start_paused(api: TestClient) -> None:
         role="Maths Tutor",
         description="Algebra only",
         system_instructions="Teach algebra.",
-        allowed_tools=["read_documents", "read_documents"],
+        allowed_tools=["document.read", "document.read"],
         permissions=[],
         avatar_key="teacher",
         activate=False,
     )
     assert (agent["role"], agent["description"], agent["system_instructions"]) == ("Maths Tutor", "Algebra only", "Teach algebra.")
-    assert agent["allowed_tools"] == ["read_documents"] and agent["permissions"] == []
+    assert agent["allowed_tools"] == ["document.read"] and agent["permissions"] == []
     assert (agent["lifecycle"], agent["runtime_state"]) == ("paused", "offline")
 
 
@@ -322,7 +325,7 @@ def test_agent_can_be_edited_and_moved(api: TestClient) -> None:  # noqa: F811
                 "role": "Exam Coach",
                 "description": "Exams",
                 "system_instructions": "Coach for exams.",
-                "allowed_tools": ["search_knowledge"],
+                "allowed_tools": ["knowledge.search"],
                 "permissions": ["read_upazila_memory"],
                 "avatar_key": "teacher",
                 "office_id": other["office"]["id"],
@@ -331,7 +334,7 @@ def test_agent_can_be_edited_and_moved(api: TestClient) -> None:  # noqa: F811
         )
     )
     assert (edited["display_name"], edited["role"], edited["avatar_key"]) == ("Mina Akter", "Exam Coach", "teacher")
-    assert edited["allowed_tools"] == ["search_knowledge"] and edited["permissions"] == ["read_upazila_memory"]
+    assert edited["allowed_tools"] == ["knowledge.search"] and edited["permissions"] == ["read_upazila_memory"]
     assert edited["location"]["union"]["name"] == "Course Learning" and edited["location"]["ward"]["number"] == 3
     assert edited["template_key"] == "study_assistant"  # the template is where it came from; it does not change
 

@@ -13,10 +13,10 @@ from pydantic import BaseModel, ConfigDict, StringConstraints
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app import task_runner  # the module, not its names: task_runner imports this package too
 from app.db import as_utc, get_session
 from app.models import Agent, AgentMessage, Task
 from app.security import AuthContext, current_auth
-from app.task_runner import move_task, settle_agent
 from app.task_status import ACTIVE, CANCELLED, QUEUED, TERMINAL
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
@@ -68,7 +68,7 @@ class MessageOut(BaseModel):
     sender: AgentRef | None
     receiver: AgentRef | None
     task_id: int
-    type: Literal["delegation", "result"]
+    type: Literal["delegation", "result", "info_request"]
     payload: dict[str, Any]
     created_at: datetime
 
@@ -239,7 +239,7 @@ def cancel_task(task_id: int, db: Session = Depends(get_session)) -> TaskDetail:
     agent_ids: set[int | None] = set()
     for item in [task, *_descendants(db, task.id)]:
         # A task the worker finished in this very moment keeps its result (move_task returns False).
-        if item.status in ACTIVE and move_task(db, item, CANCELLED):
+        if item.status in ACTIVE and task_runner.move_task(db, item, CANCELLED):
             agent_ids.add(item.assigned_agent_id)
             db.commit()
     db.refresh(task)
@@ -248,6 +248,6 @@ def cancel_task(task_id: int, db: Session = Depends(get_session)) -> TaskDetail:
             status_code=status.HTTP_409_CONFLICT, detail=f"The task finished ({task.status}) before it could be cancelled."
         )
     for agent_id in agent_ids:
-        settle_agent(db, agent_id)
+        task_runner.settle_agent(db, agent_id)
     db.commit()
     return _detail(db, task)

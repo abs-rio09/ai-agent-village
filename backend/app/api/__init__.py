@@ -6,7 +6,7 @@ here needs a valid session unless its path is on `security.PUBLIC_PATHS`.
 
 from fastapi import APIRouter, Depends
 
-from app.api import agents, auth, health, org, setup, stats, tasks, templates, village
+from app.api import agents, audit, auth, health, org, setup, stats, tasks, templates, tools, village
 from app.security import enforce_auth
 
 api_router = APIRouter(prefix="/api", dependencies=[Depends(enforce_auth)])
@@ -19,3 +19,5 @@ api_router.include_router(org.router)
 api_router.include_router(stats.router)
 api_router.include_router(agents.router)
 api_router.include_router(tasks.router)
+api_router.include_router(tools.router)
+api_router.include_router(audit.router)

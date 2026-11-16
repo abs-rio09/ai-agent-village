@@ -692,8 +692,8 @@ def test_every_m2_route_needs_a_session(api: TestClient) -> None:
     assert NEW_ROUTES <= routes
     # nothing M2 added is public, and nothing was added that this test does not know about
     m1_routes = {("GET", "/api/village"), ("GET", "/api/auth/me"), ("POST", "/api/auth/logout")}
-    # later routes have the same check in their own test files (M3, DEV-APP-01)
-    later = ("/api/agent", "/api/tasks", "/api/auth/sessions")
+    # later routes have the same check in their own test files (M3, DEV-APP-01, M4)
+    later = ("/api/agent", "/api/tasks", "/api/auth/sessions", "/api/tools", "/api/audit", "/api/approvals", "/api/memory", "/api/schedules")
     m2_and_before = {route for route in routes if route[1] not in PUBLIC_PATHS and not route[1].startswith(later)}
     assert m2_and_before == NEW_ROUTES | m1_routes
     for method, template in sorted(NEW_ROUTES):

@@ -201,7 +201,7 @@ export const AGENT_TEMPLATES: AgentTemplate[] = [
     description: "Routes requests.",
     avatar_key: "manager",
     default_instructions: "Route every request.",
-    default_tools: ["create_task"],
+    default_tools: ["task.create_child"],
     default_permissions: ["delegate_tasks"],
   },
   {
@@ -212,16 +212,16 @@ export const AGENT_TEMPLATES: AgentTemplate[] = [
     description: "Helps with study planning and exam preparation.",
     avatar_key: "student",
     default_instructions: "You are a study assistant.",
-    default_tools: ["read_documents", "read_calendar"],
+    default_tools: ["document.read", "calendar.read"],
     default_permissions: ["read_upazila_memory"],
   },
 ];
 
 export const AGENT_OPTIONS: AgentOptions = {
   tools: [
-    { key: "read_documents", label: "Read permitted documents", description: "Read documents.", sensitive: false },
-    { key: "read_calendar", label: "Read calendar", description: "Read the calendar.", sensitive: false },
-    { key: "create_task", label: "Create task", description: "Create a task.", sensitive: false },
+    { key: "document.read", label: "Read permitted documents", description: "Read documents.", sensitive: false, risk: "READ", available: false, planned_for: "M6" },
+    { key: "calendar.read", label: "Read calendar", description: "Read the calendar.", sensitive: false },
+    { key: "task.create_child", label: "Create task", description: "Create a task.", sensitive: false, risk: "WRITE", available: true, required_permission: "delegate_tasks" },
   ],
   permissions: [
     { key: "read_upazila_memory", label: "Read Upazila memory", description: "Read its Upazila's knowledge.", sensitive: false },
@@ -229,7 +229,7 @@ export const AGENT_OPTIONS: AgentOptions = {
     { key: "spend_money", label: "Spend money", description: "Make purchases.", sensitive: true },
   ],
   providers: ["demo"],
-  enforced: false,
+  enforced: true,
 };
 
 export const CENTRAL_MANAGER: Agent = {
@@ -244,7 +244,7 @@ export const CENTRAL_MANAGER: Agent = {
   office_id: 1,
   location: { office: { id: 1, name: "Central Administration", kind: "central" }, ward: null, union: null, upazila: null, path: "Central Administration" },
   system_instructions: "Route every request.",
-  allowed_tools: ["create_task"],
+  allowed_tools: ["task.create_child"],
   permissions: ["delegate_tasks"],
   provider: "demo",
   lifecycle: "active",
@@ -276,7 +276,7 @@ export const MINA: Agent = {
     path: "Study Upazila › Academic Management › Ward 1: Class Routine",
   },
   system_instructions: "You are a study assistant.",
-  allowed_tools: ["read_documents", "read_calendar"],
+  allowed_tools: ["document.read", "calendar.read"],
   permissions: ["read_upazila_memory"],
   is_central_manager: false,
 };
