@@ -11,7 +11,9 @@ import Approvals from "./pages/Approvals";
 import AuditLog from "./pages/AuditLog";
 import ComingSoon from "./pages/ComingSoon";
 import Login from "./pages/Login";
+import MemoryPage from "./pages/Memory";
 import Overview from "./pages/Overview";
+import Schedules from "./pages/Schedules";
 import SettingsPage from "./pages/Settings";
 import SetupWizard from "./pages/SetupWizard";
 import Tasks from "./pages/Tasks";
@@ -76,6 +78,8 @@ export default function App() {
         <Route path="/tasks" element={<Tasks timezone={authed?.village.timezone} />} />
         <Route path="/approvals" element={<Approvals timezone={authed?.village.timezone} />} />
         <Route path="/audit" element={<AuditLog timezone={authed?.village.timezone} />} />
+        <Route path="/schedules" element={<Schedules timezone={authed?.village.timezone} />} />
+        <Route path="/memory" element={<MemoryPage timezone={authed?.village.timezone} />} />
         <Route path="/settings" element={<SettingsPage timezone={authed?.village.timezone} />} />
         {ALL_PAGES.filter((page) => !isBuilt(page)).map((page) => (
           <Route key={page.id} path={page.path} element={<ComingSoon page={page} />} />

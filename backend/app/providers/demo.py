@@ -6,7 +6,9 @@ is a fixed outline for the agent's role, so the whole task flow can be tried wit
 Demo phrases: a few fixed wordings make the Demo agent ASK for a tool, so tools, permissions
 and approvals can be tried without an AI model. Whether the tool runs is decided elsewhere
 (app.tools.call_tool) — the provider only asks.
-  "send message to customer"   → message.send_external (SENSITIVE: needs the Chairman's approval)
+  "send message to customer"        → message.send_external (SENSITIVE: needs the Chairman's approval)
+  "remember that <something>"       → memory.write into the agent's own notes
+  "what do you remember …"          → memory.read of everything the agent may read
 """
 
 from __future__ import annotations
@@ -18,6 +20,10 @@ from app.providers.base import AgentContext, AgentReply, Provider, TaskContext, 
 DEMO_PREFIX = "[Demo]"
 # The phrase documented for trying the approval flow. Any "send (a) message/email/reply to X" works.
 DEMO_APPROVAL_PHRASE = "send message to customer"
+DEMO_REMEMBER_PHRASE = "remember that my exam is on Friday"
+DEMO_RECALL_PHRASE = "what do you remember about my exam"
+_REMEMBER = re.compile(r"\b(?:remember|note)(?:\s+that\b|\s*:)\s*(.{3,})", re.I | re.S)
+_RECALL = re.compile(r"\bwhat do you remember\b|\brecall\b", re.I)
 _SEND_EXTERNAL = re.compile(
     r"\bsend\s+(?:(?:an?|the)\s+)?(message|e-?mail|reply)\s+to\s+(?:(?:the|a|an|our|my)\s+)?([a-z][a-z'-]{1,30})", re.I
 )
@@ -132,8 +138,23 @@ class DemoProvider(Provider):
 
     def reply(self, agent: AgentContext, task: TaskContext) -> str | AgentReply:
         text = self._outline(agent, task)
-        wanted = _SEND_EXTERNAL.search(f"{task.title}\n{task.description}")
+        request = f"{task.title}\n{task.description}"
+        wanted = _SEND_EXTERNAL.search(request)
         if wanted is None:
+            recall = _RECALL.search(request)
+            if recall is not None:
+                text += "\n\nThe request asks what this agent remembers, so it asks to use the tool “Read memory”."
+                return AgentReply(text=text, tool_calls=(ToolRequest("memory.read", {}, reason="The request asks what is remembered."),))
+            remember = _REMEMBER.search(request)
+            if remember is not None:
+                fact = _one_line(remember.group(1), 1000)
+                text += "\n\nThe request asks to remember something, so this agent asks to use the tool “Write memory” for its own notes."
+                call = ToolRequest(
+                    "memory.write",
+                    {"scope": "agent", "title": _one_line(fact, 80), "content": fact},
+                    reason="The request asks to remember this.",
+                )
+                return AgentReply(text=text, tool_calls=(call,))
             return text  # plain text: no tool is asked for
         channel, recipient = wanted.group(1).lower().replace("-", ""), wanted.group(2).lower()
         text += (

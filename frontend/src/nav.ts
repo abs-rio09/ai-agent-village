@@ -1,5 +1,5 @@
-// The 22 dashboard pages from docs/SPEC.md §13, grouped for the sidebar, plus the Audit Log
-// (M4) which the SPEC asks for in §15 but does not list as a page.
+// The 22 dashboard pages from docs/SPEC.md §13, grouped for the sidebar, plus two pages M4 added:
+// the Audit Log (SPEC §15) and Schedules (SPEC §9), which the SPEC asks for but does not list.
 //
 // `milestone` is the milestone in which a page gets built. Pages up to BUILT_MILESTONE exist
 // today; every other page renders an honest "Coming in M<n>" placeholder with no data.
@@ -13,6 +13,7 @@ import {
   Bot,
   Brain,
   Building2,
+  CalendarClock,
   ChartColumn,
   Cpu,
   DatabaseBackup,
@@ -81,6 +82,7 @@ export const NAV_GROUPS: NavGroup[] = [
     pages: [
       { id: "tasks", path: "/tasks", label: "Task Center", icon: ListChecks, milestone: 3, blurb: "Send requests to the Central Manager and follow how they are delegated." },
       { id: "approvals", path: "/approvals", label: "Approval Center", icon: ShieldCheck, milestone: 4, blurb: "Approve or reject sensitive actions that agents request." },
+      { id: "schedules", path: "/schedules", label: "Schedules", icon: CalendarClock, milestone: 4, blurb: "Tasks that are created by themselves: at an interval or at a time of day." },
       { id: "audit", path: "/audit", label: "Audit Log", icon: ScrollText, milestone: 4, blurb: "Who did what and when: tool use, approvals, agent changes and logins." },
       { id: "communication", path: "/communication", label: "Communication History", icon: Radio, milestone: 9, blurb: "The structured messages agents send to each other." },
     ],
@@ -88,7 +90,8 @@ export const NAV_GROUPS: NavGroup[] = [
   {
     label: "Knowledge",
     pages: [
-      { id: "memory", path: "/memory", label: "Memory & Knowledge Center", icon: Brain, milestone: 6, blurb: "Review and delete Village, Upazila and Agent memories." },
+      // Built early by M4: the three memory scopes. Knowledge search over documents is still M6.
+      { id: "memory", path: "/memory", label: "Memory & Knowledge Center", icon: Brain, milestone: 6, builtEarly: true, blurb: "Review and delete Village, Upazila and Agent memories." },
       { id: "documents", path: "/documents", label: "Document Manager", icon: FileText, milestone: 6, blurb: "Upload, organise and search local documents." },
     ],
   },

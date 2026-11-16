@@ -39,6 +39,10 @@ def env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Path]:
     # No background task worker: tests run the queue themselves (app.task_runner.run_once / drain),
     # so nothing depends on timing. test_m3_tasks.py switches it on for the tests that need it.
     monkeypatch.setenv("VILLAGE_TASK_WORKER", "0")
+    # No scheduler thread either: tests fire schedules themselves (app.scheduler.run_schedule);
+    # test_m4_memory_schedules.py switches it on where the real APScheduler is under test.
+    monkeypatch.setenv("VILLAGE_SCHEDULER", "0")
+    monkeypatch.delenv("VILLAGE_STUCK_TASK_MINUTES", raising=False)
     get_settings.cache_clear()
     reset_engine()
     assert get_settings().db_file != ROOT_DIR / "data" / "village.db"

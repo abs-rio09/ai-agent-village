@@ -68,6 +68,14 @@ function RoutingResult({ task }: { task: TaskDetail }) {
             </span>
           </p>
         ))
+      ) : task.kind === "scheduled" ? (
+        <p className="text-sm text-mist-300">
+          Created by a schedule and given directly to{" "}
+          <strong className="font-semibold text-mist-50">{task.assigned_agent?.display_name ?? "its agent"}</strong>. The Central
+          Manager did not route it.
+        </p>
+      ) : task.kind === "daily_report" ? (
+        <p className="text-sm text-mist-300">Created by the “Daily report” schedule. It is counted from the village&apos;s database, not written by an agent.</p>
       ) : task.status === "FAILED" ? (
         <p className="text-sm text-mist-300">The request was not delegated. The reason is shown under “Error”.</p>
       ) : task.status === "CANCELLED" ? (

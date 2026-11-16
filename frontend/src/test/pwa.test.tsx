@@ -87,7 +87,7 @@ describe("mobile layout (390 px)", () => {
     const sheet = screen.getByRole("dialog", { name: "All pages" });
     expect(more).toHaveAttribute("aria-expanded", "true");
     const links = within(within(sheet).getByRole("navigation", { name: "Village pages" })).getAllByRole("link");
-    expect(links).toHaveLength(23); // every page of the village (the SPEC's 22 + Audit Log)
+    expect(links).toHaveLength(24); // every page of the village (the SPEC's 22 + Audit Log + Schedules)
     for (const link of links) expect(link.className).toContain("min-h-11"); // 44 px touch targets
     expect(within(sheet).getByText("chairman")).toBeInTheDocument();
     expect(within(sheet).getByTestId("ai-mode-badge")).toHaveTextContent("Demo");

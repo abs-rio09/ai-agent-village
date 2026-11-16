@@ -23,13 +23,17 @@ Office → Agents) managed from a web dashboard. Runs on one Ubuntu PC (Ryzen 7 
 ```
 village                 bash CLI (setup/start/stop/restart/status/logs/doctor)
 backend/app/            main.py (app + runner), config.py (settings), db.py (engine, Base, session),
-                        models.py, security.py, dbcheck.py, api/ (one router module per area)
+                        models.py, security.py, dbcheck.py, api/ (one router module per area),
+                        tools/ (tool registry; check_tool_use + call_tool are the ONLY way to run a
+                        tool), approvals.py, audit.py (append-only), memory.py (scope rules),
+                        scheduler.py (APScheduler; jobs only create tasks), task_runner.py (the queue)
 backend/alembic/        env.py uses app settings + Base.metadata; versions/ hand-written migrations
 backend/tests/          pytest; conftest.py gives every test a temp DB + temp .env
 frontend/               Vite + React app; `npm run build` → frontend/dist (served by FastAPI)
 data/                   village.db (+ -wal/-shm) and .env — both git-ignored
 logs/ run/              village.log, village.pid — git-ignored
 docs/SPEC.md            feature specification
+docs/DECISIONS.md       the fixed decisions below, plus the choices made while building
 PROGRESS.md             honest status log — update it every session
 ```
 
@@ -40,6 +44,9 @@ PROGRESS.md             honest status log — update it every session
 - Tests never touch `data/village.db` or `data/.env` (use the `env`/`migrated`/`client` fixtures).
 - Never log or return passwords, session tokens, or API keys.
 - Never delete or overwrite files you did not create. Never `rm data/village.db*`.
+- Never rebuild the `task` table in a migration (no `batch_alter_table("task")`): dropping it
+  cascades to messages and approvals. Add columns with `op.add_column`, drop with `ALTER TABLE`.
+- `audit_log` is append-only (triggers). Never write an UPDATE/DELETE for it.
 
 ## Tests
 ```bash
@@ -63,6 +70,8 @@ doctor    PASS/WARN/FAIL environment checks; non-zero exit on any FAIL
 backup | restore    placeholders until M8
 ```
 Overrides for experiments: `VILLAGE_DB_PATH`, `VILLAGE_PORT` (environment or `data/.env`).
+`VILLAGE_SCHEDULER=0` / `VILLAGE_TASK_WORKER=0` switch the scheduler / the task worker off (the
+tests do); `VILLAGE_STUCK_TASK_MINUTES` (default 30) is the health check's limit.
 `VILLAGE_ALLOWED_HOSTS` (comma list, default `127.0.0.1,localhost`) names the extra Host names the
 app answers to, e.g. the PC's Tailscale name. It never changes the bind address. See `docs/MOBILE.md`.
 

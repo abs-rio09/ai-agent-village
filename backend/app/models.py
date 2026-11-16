@@ -11,11 +11,14 @@ from sqlalchemy import (
     Boolean,
     CheckConstraint,
     DateTime,
+    Float,
     ForeignKey,
     Index,
     Integer,
+    LargeBinary,
     String,
     Text,
+    Unicode,
     UniqueConstraint,
     select,
     text,
@@ -287,6 +290,9 @@ class Task(Timestamps, Base):
     assigned_agent_id: Mapped[int | None] = mapped_column(ForeignKey("agent.id"), nullable=True)
     parent_task_id: Mapped[int | None] = mapped_column(ForeignKey("task.id", ondelete="CASCADE"), nullable=True)
     depth: Mapped[int] = mapped_column(Integer, nullable=False, default=0)  # 0 = sent by the Chairman
+    # 'request' (the Chairman → Central Manager), 'delegated' (child task), 'scheduled' (a schedule →
+    # one agent, not routed), 'daily_report', 'health_check' (system tasks). See app/task_runner.py.
+    kind: Mapped[str] = mapped_column(String(16), nullable=False, default="request", server_default="request")
     priority: Mapped[str] = mapped_column(String(8), nullable=False, default="normal")
     input: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
     output: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -312,6 +318,114 @@ class AgentMessage(Base):
     type: Mapped[str] = mapped_column(String(20), nullable=False)
     payload: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utcnow)
+
+
+# ---------------------------------------------------------------- memory (M4)
+#
+# Three scopes (docs/SPEC.md §8D). Who may read or write which scope is decided in app/memory.py.
+# Private customer information never goes into VILLAGE memory: the flag below marks it, and a
+# CHECK constraint refuses the combination.
+
+
+class Memory(Timestamps, Base):
+    __tablename__ = "memory"
+    __table_args__ = (
+        CheckConstraint(
+            "(scope = 'VILLAGE' AND upazila_id IS NULL AND agent_id IS NULL) OR "
+            "(scope = 'UPAZILA' AND upazila_id IS NOT NULL AND agent_id IS NULL) OR "
+            "(scope = 'AGENT' AND agent_id IS NOT NULL AND upazila_id IS NULL)",
+            name="ck_memory_scope_owner",
+        ),
+        CheckConstraint("NOT (scope = 'VILLAGE' AND contains_customer_data)", name="ck_memory_no_customer_data_in_village"),
+        Index("ix_memory_scope", "scope"),
+        Index("ix_memory_upazila_id", "upazila_id"),
+        Index("ix_memory_agent_id", "agent_id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    scope: Mapped[str] = mapped_column(String(16), nullable=False)
+    upazila_id: Mapped[int | None] = mapped_column(ForeignKey("upazila.id", ondelete="CASCADE"), nullable=True)
+    agent_id: Mapped[int | None] = mapped_column(ForeignKey("agent.id", ondelete="CASCADE"), nullable=True)
+    title: Mapped[str] = mapped_column(String(120), nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    contains_customer_data: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    created_by: Mapped[str] = mapped_column(String(80), nullable=False)  # "chairman:<username>" or "agent:<id>"
+    updated_by: Mapped[str] = mapped_column(String(80), nullable=False)
+
+
+class TaskContext(Timestamps, Base):
+    """Temporary working notes of one task. Deleted when the task finishes (task_runner.move_task)."""
+
+    __tablename__ = "task_context"
+    __table_args__ = (UniqueConstraint("task_id", "key", name="uq_task_context_task_key"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    task_id: Mapped[int] = mapped_column(ForeignKey("task.id", ondelete="CASCADE"), nullable=False)
+    agent_id: Mapped[int] = mapped_column(ForeignKey("agent.id", ondelete="CASCADE"), nullable=False)
+    key: Mapped[str] = mapped_column(String(120), nullable=False)
+    value: Mapped[str] = mapped_column(Text, nullable=False)
+
+
+# ---------------------------------------------------------------- schedules (M4)
+#
+# A schedule only ever CREATES a task; the task runner does the work. `schedule_run.run_key` is
+# unique: one scheduled run can create at most one task, also after a restart.
+
+
+class Schedule(Timestamps, Base):
+    __tablename__ = "schedule"
+    __table_args__ = (
+        CheckConstraint("kind IN ('builtin', 'custom')", name="ck_schedule_kind"),
+        CheckConstraint(
+            "(trigger_type = 'interval' AND interval_minutes >= 1) OR (trigger_type = 'daily' AND daily_time IS NOT NULL)",
+            name="ck_schedule_trigger",
+        ),
+        CheckConstraint(
+            "(kind = 'builtin' AND builtin_key IS NOT NULL) OR (kind = 'custom' AND builtin_key IS NULL AND agent_id IS NOT NULL)",
+            name="ck_schedule_owner",
+        ),
+        UniqueConstraint("builtin_key", name="uq_schedule_builtin_key"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    kind: Mapped[str] = mapped_column(String(16), nullable=False)
+    builtin_key: Mapped[str | None] = mapped_column(String(32), nullable=True)  # 'health_check' | 'daily_report'
+    agent_id: Mapped[int | None] = mapped_column(ForeignKey("agent.id", ondelete="CASCADE"), nullable=True)
+    request_text: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    trigger_type: Mapped[str] = mapped_column(String(16), nullable=False)  # 'interval' | 'daily'
+    interval_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    daily_time: Mapped[str | None] = mapped_column(String(5), nullable=True)  # "HH:MM" in the village's timezone
+    paused: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    anchor_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utcnow)  # interval runs are anchor + k × interval
+    last_run_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    last_task_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+
+class ScheduleRun(Base):
+    __tablename__ = "schedule_run"
+    __table_args__ = (
+        UniqueConstraint("run_key", name="uq_schedule_run_key"),
+        Index("ix_schedule_run_schedule_id", "schedule_id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    schedule_id: Mapped[int] = mapped_column(ForeignKey("schedule.id", ondelete="CASCADE"), nullable=False)
+    run_key: Mapped[str] = mapped_column(String(80), nullable=False)  # "<schedule id>:<scheduled time, UTC>"
+    fired_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utcnow)
+    task_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+
+class SchedulerJob(Base):
+    """APScheduler's job store table. Only APScheduler reads and writes it; it is declared here so
+    that it is created by a migration and the models match the database."""
+
+    __tablename__ = "apscheduler_jobs"
+    __table_args__ = (Index("ix_apscheduler_jobs_next_run_time", "next_run_time"),)
+
+    id: Mapped[str] = mapped_column(Unicode(191), primary_key=True)
+    next_run_time: Mapped[float | None] = mapped_column(Float(25), nullable=True)
+    job_state: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
 
 
 # ---------------------------------------------------------------- approvals (M4)

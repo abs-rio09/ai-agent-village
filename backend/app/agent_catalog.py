@@ -22,6 +22,8 @@ PERMISSIONS: tuple[CatalogItem, ...] = (
     CatalogItem("read_village_memory", "Read village memory", "Read information shared with the whole village."),
     CatalogItem("read_upazila_memory", "Read Upazila memory", "Read the knowledge of its own Upazila."),
     CatalogItem("write_agent_memory", "Keep its own notes", "Save its own notes and working context."),
+    CatalogItem("write_upazila_memory", "Write Upazila memory", "Add to the shared knowledge of its own Upazila."),
+    CatalogItem("write_village_memory", "Write village memory", "Add to the memory shared with the whole village."),
     CatalogItem("delegate_tasks", "Delegate tasks", "Hand work to other agents."),
     CatalogItem("create_files", "Create files", "Create files in the folders it is allowed to use."),
     CatalogItem("send_external_messages", "Send external messages", "Send e-mail or chat messages.", sensitive=True),

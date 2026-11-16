@@ -348,8 +348,8 @@ def test_denied_tool_call_fails_the_task_with_the_reason(api: TestClient, script
 
 
 def test_unbuilt_tools_say_not_available_yet_and_do_nothing(api: TestClient, scripted: ScriptedProvider) -> None:  # noqa: F811
-    agent = make_agent(api, name="Lima", allowed_tools=["memory.read", "memory.write", "document.read", "pdf.generate"], permissions=["create_files"])
-    for key in ("memory.read", "memory.write", "document.read", "pdf.generate"):
+    agent = make_agent(api, name="Lima", allowed_tools=["calendar.read", "knowledge.search", "document.read", "pdf.generate"], permissions=["create_files"])
+    for key in ("calendar.read", "knowledge.search", "document.read", "pdf.generate"):
         outcome = use_tool(agent["id"], key)
         assert outcome.status == "unavailable" and "is not available yet" in outcome.summary and outcome.data == {}
     assert {row["action"] for row in audit_rows("agent_name = 'Lima' AND action LIKE 'tool.%'")} == {"tool.unavailable"}

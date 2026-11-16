@@ -300,6 +300,8 @@ export interface Task {
   assigned_agent: AgentRef | null;
   parent_task_id: number | null;
   depth: number;
+  /** request | delegated | scheduled | daily_report | health_check */
+  kind?: string;
   priority: TaskPriority;
   input: Record<string, unknown>;
   output: string | null;
@@ -402,6 +404,72 @@ export interface AuditFilter {
   task_id?: number | null;
   limit?: number;
   offset?: number;
+}
+
+// ---- memory + schedules (M4) ----
+
+export type MemoryScope = "VILLAGE" | "UPAZILA" | "AGENT";
+
+export interface MemoryEntry {
+  id: number;
+  scope: MemoryScope;
+  upazila_id: number | null;
+  upazila_name: string | null;
+  agent_id: number | null;
+  agent_name: string | null;
+  title: string;
+  content: string;
+  /** Marked by the writer or recognised by the server; never allowed in VILLAGE memory. */
+  contains_customer_data: boolean;
+  created_by: string;
+  updated_by: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface MemoryInput {
+  scope: MemoryScope;
+  upazila_id?: number | null;
+  agent_id?: number | null;
+  title: string;
+  content: string;
+  contains_customer_data: boolean;
+}
+
+export interface Schedule {
+  id: number;
+  name: string;
+  kind: "builtin" | "custom";
+  builtin_key: string | null;
+  /** Who gets the task; null for the built-in system schedules. */
+  agent: AgentRef | null;
+  request_text: string;
+  trigger_type: "interval" | "daily";
+  interval_minutes: number | null;
+  daily_time: string | null;
+  /** "every 10 minutes", "every day at 21:00" */
+  trigger_text: string;
+  paused: boolean;
+  last_run_at: string | null;
+  last_task_id: number | null;
+  last_task_status: TaskStatus | null;
+  /** null while paused or while the scheduler is not running. */
+  next_run_at: string | null;
+  created_at: string;
+}
+
+export interface SchedulesPage {
+  scheduler_running: boolean;
+  timezone: string;
+  schedules: Schedule[];
+}
+
+export interface ScheduleInput {
+  agent_id: number;
+  request_text: string;
+  trigger_type: "interval" | "daily";
+  interval_minutes?: number;
+  daily_time?: string;
 }
 
 function query(params: Record<string, string | number | boolean | null | undefined>): string {
@@ -572,6 +640,20 @@ export const api = {
   decideApproval: (id: number, decision: "approve" | "reject", note: string) =>
     request<Approval>("POST", `/api/approvals/${id}/${decision}`, { note }),
   audit: (filter: AuditFilter = {}) => request<AuditPage>("GET", `/api/audit${query({ ...filter })}`),
+
+  // memory
+  memory: (filter: { scope?: MemoryScope | null; upazila_id?: number | null; agent_id?: number | null } = {}) =>
+    request<MemoryEntry[]>("GET", `/api/memory${query(filter)}`),
+  createMemory: (input: MemoryInput) => request<MemoryEntry>("POST", "/api/memory", input),
+  updateMemory: (id: number, patch: { title?: string; content?: string; contains_customer_data?: boolean }) =>
+    request<MemoryEntry>("PATCH", `/api/memory/${id}`, patch),
+  deleteMemory: (id: number) => request<{ deleted: boolean }>("DELETE", `/api/memory/${id}`),
+
+  // schedules
+  schedules: () => request<SchedulesPage>("GET", "/api/schedules"),
+  createSchedule: (input: ScheduleInput) => request<Schedule>("POST", "/api/schedules", input),
+  scheduleAction: (id: number, action: "pause" | "resume") => request<Schedule>("POST", `/api/schedules/${id}/${action}`),
+  deleteSchedule: (id: number) => request<{ deleted: boolean }>("DELETE", `/api/schedules/${id}`),
 };
 
 /** A message fit for the user from anything a failed call can throw. */

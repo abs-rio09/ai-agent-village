@@ -18,16 +18,18 @@ migration or test was changed. The CI workflow has **not run on GitHub yet** (no
 yet accepted by the owner**. Checked in a headless Chrome and with real HTTP requests against a
 scratch server. **Installing in a real Chrome window, Android and Tailscale are not tested by
 Claude Code** — see the APP-01 sections and "How to verify APP-01 on desktop and Android".
-The live village still runs the older code and its database is at 0005 (head is now 0006).
+The live village's database is at 0006 (seen in a read-only copy on 2026-11-16, so the owner has
+run `./village setup` for APP-01); head is now 0009.
 
 Milestone **M3 — Agents & Tasks**: Parts A, B and C are **built and committed, not yet accepted
 by the owner**. Checked on a scratch database and port 8013 only; the live village on port 8000
 was not touched and still runs the older code (see "How to verify M3 on the live village").
 
-Milestone **M4 — Control**: Parts A (tool registry, permission checks, audit log) and B (approvals,
-Approval Center, Audit Log page) are **built and committed, not yet accepted by the owner**. Part C
-(memory, scheduler) follows. Checked with the test suites and on a scratch server (port 8013); the
-live village was not touched.
+Milestone **M4 — Control**: Parts A (tool registry, permission checks, audit log), B (approvals,
+Approval Center, Audit Log page) and C (memory scopes, scheduler) are **built and committed, not yet
+accepted by the owner**. Checked with the test suites, on a scratch server (port 8013) and in a
+headless browser; the live village was not started, migrated or rebuilt. See "How to verify M4 on
+the live village" — the Demo approval phrase is **`send message to customer`**.
 
 ## Done
 ### M1 Part A — scaffold, backend core, `./village` CLI
@@ -650,6 +652,180 @@ live village was not touched.
 - **Not tested in Part B:** the two pages in a real browser (done in the M4 final check — see
   there), and a phone.
 
+### M4 Part C — memory scopes and scheduler (2026-11-16)
+- Migration `0009_memory_schedules.py` (schema_version 9): `memory`, `task_context`, `schedule`,
+  `schedule_run`, APScheduler's own `apscheduler_jobs` (created by the migration with the columns
+  APScheduler 3.x uses, so the schema still only changes through Alembic) and a new column
+  `task.kind` (`request` / `delegated` / `scheduled` / `daily_report` / `health_check`).
+  `task.kind` is added and removed with plain `ALTER TABLE`, **never with a table rebuild**: a
+  rebuild drops the old `task` table and, with foreign keys on, that deletes its messages and
+  approvals (tested: they survive the downgrade).
+- **Memory** (`backend/app/memory.py`), three scopes:
+
+  | scope | an agent may read | an agent may write |
+  |---|---|---|
+  | VILLAGE | with "Read village memory" | with "Write village memory" |
+  | UPAZILA | its OWN Upazila, with "Read Upazila memory" | its OWN Upazila, with "Write Upazila memory" |
+  | AGENT | its OWN notes, always | its OWN notes, with "Keep its own notes" |
+
+  "Write Upazila memory" and "Write village memory" are two new permissions (no template has
+  them by default). An agent in Central Administration has no Upazila memory. The tools have no
+  argument to name another agent or Upazila. **Deviation from the brief's wording:** the brief
+  lets an agent read its own Upazila without condition; the permission "Read Upazila memory"
+  already existed since M3 and is on every template except the Village Manager, so it is
+  enforced rather than left as a tick box that does nothing.
+- `memory.read` / `memory.write` are real tools now. A refusal by a scope rule is audited as
+  `tool.denied`, like any other refusal.
+- **Customer data never goes into VILLAGE memory.** A memory is flagged when its writer says so or
+  when the text holds an e-mail address or a phone number (9 or more digits). Flagged + VILLAGE
+  is refused for agents AND for the Chairman (create and edit), and a CHECK constraint refuses it
+  in the database too. **The detection is a simple pattern, not understanding**: a customer's
+  name or address alone is not recognised unless the writer ticks the flag.
+- **Task context**: `memory.write` / `memory.read` with scope `task` keep working notes of one
+  task (at most 20). They are deleted when the task reaches SUCCEEDED, FAILED or CANCELLED (in
+  `move_task`), and are kept while it waits for an approval.
+- Demo phrases (no API key): **`remember that my exam is on Friday`** → the agent saves it to
+  its own notes; **`what do you remember about my exam`** → the agent lists what it may read.
+  (Both need a routing word such as "exam" so the Central Manager finds an Upazila.)
+- Memory API (session required): `GET /api/memory?scope=&upazila_id=&agent_id=&q=`, `POST`,
+  `GET/PATCH/DELETE /api/memory/{id}`. Scope and owner of a memory cannot be changed. Create,
+  edit and delete are audited — without the text.
+- **Scheduler** (`backend/app/scheduler.py`): APScheduler 3.11 (`apscheduler>=3.10,<4.0`, the only
+  new backend dependency; it brings `tzlocal`). `BackgroundScheduler` started and stopped by the
+  FastAPI lifespan, `SQLAlchemyJobStore` on the same SQLite engine, coalesce on, max 1 instance,
+  2 worker threads. Timezone: the village's (wizard default Asia/Dhaka; Asia/Dhaka if unknown).
+  `VILLAGE_SCHEDULER=0` switches it off (the tests do).
+  - **A job only creates a task.** `scheduled` tasks go straight to their agent (not through the
+    Central Manager); the task runner does the work with the usual checks.
+  - **Idempotency:** a run is identified by `<schedule id>:<the time it was scheduled for>`,
+    computed from the schedule itself, and that key is UNIQUE in `schedule_run`. A second firing
+    of the same run — a second thread, or a restart before APScheduler saved its state — creates
+    nothing (tested with 8 parallel firings). After downtime the missed runs of a schedule are
+    ONE run at the next start, not one task per missed run.
+  - Built-in: **Agent health check** every 10 minutes → a `health_check` task; the runner then
+    fails tasks that were RUNNING for more than 30 minutes (`VILLAGE_STUCK_TASK_MINUTES`) without
+    progress — not tasks that wait for child tasks or for an approval — and resets agents shown
+    as busy without a task. **Daily report** at 21:00 → a `daily_report` task whose output is
+    counted from the database (requests by status, approvals, refused tool calls, agents); it
+    says "No AI model wrote this report".
+  - Health-check tasks are hidden from the Task Center list (`GET /api/tasks?system=true` shows
+    them) and deleted after 7 days; run keys after 30 days.
+- Schedules API: `GET /api/schedules` (with `scheduler_running`, `timezone`), `POST` (agent +
+  request text + `interval_minutes` 1–10080 or `daily_time` HH:MM; not the Central Manager; at
+  most 50), `POST …/{id}/pause`, `…/resume`, `DELETE` (built-in ones: 409, pause instead).
+  Create, pause, resume and delete are audited. `GET /api/health` reports `scheduler` and
+  `scheduler_jobs`.
+- `./village doctor` has a `scheduler:` line (`backend/app/schedcheck.py`): APScheduler
+  installed, schedule tables present, and — when the Village runs — whether the scheduler thread
+  is alive. The `deps:` check now also imports `apscheduler`.
+- Frontend: **Memory & Knowledge Center** (`pages/Memory.tsx`: tabs Village / Upazila / Agent,
+  owner filter, add, view/edit, delete with confirm, "customer data" tag) and **Schedules**
+  (`pages/Schedules.tsx`, new page `/schedules`: list with last run + task link + next run,
+  create form, Pause/Resume, Delete with confirm, a warning when the scheduler is not running).
+  The Task Center says "Created by a schedule and given directly to …" for a scheduled task.
+  The sidebar has 24 pages (SPEC's 22 + Audit Log + Schedules); Memory is `builtEarly` (its
+  document/knowledge half is still M6).
+- Tests: pytest **391 passed, 1 skipped** (shellcheck); 25 new in
+  `tests/test_m4_memory_schedules.py`: 0009 up/down, read and write rules for every scope
+  (allowed and denied), central agent, customer-data guard (tool, API, edit, database), Demo
+  phrases, task context removed at SUCCEEDED / FAILED / CANCELLED, memory API, schedule
+  validation, one task per run, parallel firings, pause/resume/delete, paused agent, daily
+  schedule in Asia/Dhaka, health check, stuck limit, daily report, the doctor line, and **one
+  test with the real APScheduler and the real worker thread**: job fires → task → SUCCEEDED,
+  pause removes the next run, restart keeps the same 3 jobs and the same next run and creates no
+  second task. Two older tests were adjusted (exact `/api/health` body; "memory tools are not
+  built"). Vitest **142 passed** (9 new in `memory.test.tsx`). `tsc --noEmit` ok.
+
+### M4 final check (run by the assistant, 2026-11-16)
+- Never started, migrated or rebuilt the live village; `data/village.db` has the same size and
+  modification time as before. `frontend/dist` was not rebuilt: `tsc --noEmit`, `vite build` and
+  `build-sw` ran into a scratch folder (`npm run build` itself would replace `frontend/dist`).
+  **One side effect:** `./village status`, run once at the start of the session to see whether
+  the village was up, removed a stale `run/village.pid` (the village was not running).
+- **Migrations on copies:** the scratch database with M4 data 0009 → 0008 → 0007 → 0006 → head,
+  and a read-only copy of the live `data/village.db` 0006 → 0009 → 0005 → 0009: row counts of
+  village, admin, sessions, org, agents, tasks and messages unchanged at every step,
+  `integrity_check` ok, `foreign_key_check` empty. On the live copy the two existing agents got
+  the renamed tool keys and nothing else. The copy was deleted afterwards.
+  (A downgrade below 0007 drops the audit log, and below 0009 the memories and schedules.)
+- **Real server** (scratch DB/.env/build, port 8013, `python -m app.main`, stopped afterwards),
+  with curl: see Parts A and B; plus scheduler `running`, the Demo memory phrases, a Village
+  memory with a phone number refused (422).
+- **Real 1-minute schedule:** created for "Mina" → after ~80 s one `scheduled` task, SUCCEEDED;
+  paused for 70 s → no new task; server stopped for 65 s (one run missed) and started → exactly
+  one catch-up task (2 tasks, 2 distinct run keys, 3 jobs in `apscheduler_jobs`, no duplicate).
+  The built-in health check was also seen firing at its own time (task SUCCEEDED, "Checked 0
+  running task(s)"). **The daily report was not seen firing at 21:00** — it is covered by
+  pytest only.
+- `./village doctor` against that server: `bind` PASS, `migration: at head (0009)`,
+  `scheduler: running inside the Village — 3 job(s), 3 schedule(s), 1 paused, timezone
+  Asia/Dhaka`, "doctor: no failures".
+- **Headless Chrome on that server, 1280 px:** Task Center "send message to customer" → notice
+  "This task is waiting for your approval" + "needs your approval" in the list + badge "1" on
+  Approval Center → the request card with all six §8F fields → Approve → confirm dialog → status
+  approved, result "approved — no external connector yet. Nothing was sent.", badge gone. A second
+  request → Reject with a note → the task shows "'Send external message' was rejected by
+  Chairman. Note: not today". Approval Center "All" tab. Audit Log: tool.allowed, tool.denied,
+  approval.created/approved/rejected, agent.created/paused/activated, auth.login,
+  schedule.created and settings.setup_completed all in the table; the "Approvals" filter; the
+  password is nowhere on the page. Memory: a Village memory with a phone number refused with the
+  server's message; add, edit, delete (confirm) of a Village memory; the agent's own Demo note on
+  the Agent tab; an Upazila memory with a phone number saved and tagged "customer data".
+  Schedules: the two built-in ones listed; a 1-minute schedule created → after 70 s "Last run …
+  task #22 SUCCEEDED" and a next run; Pause → "paused"; Delete (confirm); the task says "Created
+  by a schedule and given directly to Mina". No browser console error except the expected 422.
+- **390 px wide:** Approval Center, Audit Log (cards, no table), Memory, Schedules and Task Center
+  have no horizontal scroll and no button, select or input lower than 44 px.
+- **Not tested:** anything on a real phone or over Tailscale; the pending-count badge on the
+  phone's "More" button with a request waiting (Vitest only); `agent.request_info`, `org.read`,
+  an agent's own `task.create_child`, the `file.delete` / `money.spend` / `marketing.publish`
+  placeholders and Upazila/Village memory written BY AN AGENT in a browser (no Demo phrase leads
+  to them — pytest with a scripted test provider only); the daily report at its real time; a
+  timezone other than Asia/Dhaka; the scheduler over days; `shellcheck` on the changed `village`
+  script (not installed; `bash -n` passes); Ollama and Anthropic (do not exist).
+
+## How to verify M4 on the live village
+Update first (new dependency APScheduler, migrations 0007–0009, new frontend build):
+`./village stop && ./village setup && ./village start`. Then log in.
+
+1. `./village doctor` → `migration: at head (0009)`, a line
+   `PASS  scheduler: running inside the Village — 2 job(s), …`, and "doctor: no failures".
+2. **Enforcement.** Upazila Management: make sure Business Upazila exists and has its standard
+   structure. Agent Management → New agent → **Customer Support Agent** → name "Sumi" → Business
+   Upazila / Customer & Sales / any Ward → the tools step now says "Tools and permissions are
+   enforced" → Save & activate.
+3. Task Center → send **`send message to customer`** → the request FAILS; its error ends with
+   "Tool call refused. The tool 'Send external message' is not assigned to 'Sumi'." (Sensitive
+   tools are never a default.) Audit Log → a `tool.denied` entry for Sumi.
+4. **Approval.** Sumi's profile → tick the tool **Send external message** and the permission
+   **Send external messages** → Save. Task Center → send **`send message to customer`** again →
+   "This task is waiting for your approval", the sidebar shows a **1** on Approval Center.
+5. Approval Center → the card shows Requesting agent, Requested action, Reason, Tool, Expected
+   changes, Risk information → **Approve** → **Yes, approve**. After a moment (Approved tab):
+   Result "approved — no external connector yet. Nothing was sent." The task is SUCCEEDED.
+   **Nothing was really sent — there is no connector.**
+6. Send the phrase once more → Approval Center → **Reject** → the task is FAILED with
+   "'Send external message' was rejected by Chairman."
+7. Pause Sumi (her profile) → send the phrase → FAILED "…has no active agent" (if she is the only
+   agent in Business Upazila) → Activate her.
+8. **Audit Log** → entries for the tool calls, the approvals, the pause/activate and your login.
+   Filter "Approvals (all)". No password or key anywhere.
+9. **Memory.** Your agent from M3 (for example "Mina") keeps exactly the tools it had: on its
+   profile tick **Read memory** and **Write memory** (a NEW agent has them already). Task Center →
+   **`remember that my exam is on Friday`** → SUCCEEDED with "[Tool] Write memory: Saved …".
+   Memory & Knowledge Center → tab **Agent** → the note is there. Then send
+   **`what do you remember about my exam`** → the output lists it.
+10. Memory → tab Village → Add memory → title "Rahim", text "call 01712-345678" → refused:
+    "Customer data cannot be stored in Village memory…". Change the text to something harmless →
+    saved. View / edit it, then Delete it.
+11. **Schedules** → the two built-in schedules are listed. New schedule: your agent, "Every 1
+    minutes", request "Summarise today's study progress" → Create. Within about a minute: "Last
+    run … task #n SUCCEEDED" (the page refreshes itself every 10 s). **Pause** → wait two minutes
+    → no new task. **Resume**, then `./village restart` → still one schedule, and no doubled
+    task for the same minute. Delete the schedule when done (it creates a task every minute).
+12. Leave the village running until after 21:00: the next day Task Center shows "Daily report
+    <date>" with counts from the database. (This one was NOT watched by Claude Code.)
+
 ## How to verify APP-01 on desktop and Android
 First update the live village (migration 0006 and a new frontend build):
 `./village stop && ./village setup && ./village start`. Details for every step: `docs/MOBILE.md`.
@@ -714,13 +890,13 @@ frontend), log in, then:
 8. Overview again: the four counts match.
 
 ## In progress
-- M4: Parts A and B committed; Part C (memory scopes, scheduler) is next.
+- Nothing. M4 Parts A, B and C are committed. The next milestone has not been started.
 
 ## Broken & known issues
 - `VILLAGE_SECRET_KEY` is required and generated, but nothing uses it yet (session tokens are
   random and stored hashed). It is reserved for future signing needs.
-- Demo/AI: no AI provider code exists yet. `ai_mode`, the Ollama URL and the Anthropic key are
-  only stored; **neither Ollama nor Anthropic has been contacted or tested**.
+- AI: only the Demo provider exists (since M3). `ai_mode`, the Ollama URL and the Anthropic key
+  are only stored; **neither Ollama nor Anthropic has been contacted or tested**.
 - `GET /api/health` `demo_mode` follows the brief literally ("no Anthropic key set"), so a village
   in Ollama mode without a key still reports `demo_mode: true`.
 - Login lockout is stored in SQLite since APP-01 (it survives a restart). Sessions are not
@@ -749,11 +925,11 @@ frontend), log in, then:
 - Org names are compared exactly: "Garden" and "garden" count as two different names.
 - A session model/migration mismatch from M1 was fixed in the model only (`session.user_id` now
   declares the index that migration 0002 already created); no schema change.
-- The "Coming in M<n>" numbers (M2 org structure, M3 agents + AI settings, M4 tasks/approvals/
-  communication, M5 map, M6 memory + documents, M7 commerce + integrations, M8 reports, settings,
-  backup, health) are an assumption — only "backup = M8" was given. They live in
-  `frontend/src/nav.ts`. M9 (automation + release hardening) is an assumption too and exists only
-  in the README.
+- The "Coming in M<n>" numbers in `frontend/src/nav.ts` (M5 map, M6 documents, M7 commerce +
+  integrations, M8 reports, settings, backup, health, M9 AI Model Settings) are partly an
+  assumption — only "backup = M8" and "AI Model Settings = M9" were given. **Agent Chat and
+  Communication History were moved from M4 to M9 by the assistant** because the M4 brief does not
+  contain them; the README's M9 line follows that. Change both if the plan differs.
 - The small-screen layout was only spot-checked: the Ward page at 420 px wide has no horizontal
   overflow. The other pages and the drawer were checked at desktop width only.
 - `./village setup` runs `npm ci` every time, as specified, so each run reinstalls
@@ -761,6 +937,25 @@ frontend), log in, then:
 - shellcheck is not installed on this PC, so the everyday test run skips that test
   (`sudo apt install shellcheck` to enable it). It was run once with shellcheck 0.11.0 from a
   scratch install during DEV-DOCS-01 and `village` passed.
+- M4 limits, on purpose or not yet built:
+  - The four SENSITIVE tools are placeholders. Approving records the approval; nothing is sent,
+    deleted, paid or published.
+  - `agent.request_info` records a message; no agent answers it by itself.
+  - Only three Demo phrases ask for a tool (send message, remember, what do you remember). The
+    other real tools cannot be triggered from the browser until a real AI provider exists (M9).
+  - The agent health check is a task in the same single-worker queue: if a provider call ever
+    hangs, the worker is blocked and the health check cannot run either. The Demo provider cannot
+    hang; real providers (M9) need their own timeouts.
+  - A schedule for a paused or disabled agent still creates its task every run; each one FAILS
+    with the reason. Pause the schedule too.
+  - The daily report time (21:00) and the health check interval (10 min) can be paused but not
+    changed in the UI. A changed village timezone reaches the scheduler at the next start.
+  - Customer-data detection sees e-mail addresses and phone numbers only.
+  - Existing agents were not given the new memory tools by the migration; tick them per agent.
+  - While open, the Approval Center asks the server every 5 s, Schedules every 10 s, the sidebar
+    badge every 20 s, and the Task Center every 1.5 s for as long as a task waits for approval.
+  - Downgrading a database below 0007 and upgrading again does not give agents back tools that
+    did not exist before 0007 (memory.*, org.read, the sensitive ones).
 - SQLite re-uses the id of a deleted agent for the next new agent (only an agent without history
   can be deleted, and only the newest id is re-used). Audit entries keep `agent_name`, so the two
   can be told apart, but a filter by `agent_id` shows both.
@@ -770,10 +965,15 @@ frontend), log in, then:
   harmless today.
 
 ## Last session
-- DEV-APP-01 Parts A and B: two commits, nothing pushed. Tests pass (pytest 324 + 1 skip,
-  Vitest 116). The live village was not restarted, migrated or rebuilt; `frontend/dist` was not
-  rebuilt (all builds went to a scratch folder).
-- Waiting for: the owner's check of APP-01 on the desktop and on Android (Tailscale), the owner's
-  confirmation of M2 and M3, the milestone for Agent Chat and AI Model Settings, the ward names
-  for the Business/Career/Research/Project/Personal templates, the Node 20 vs 22 decision, and the
-  first CI run on GitHub.
+- DEV-M4 Parts A, B and C: three commits on `main` ("M4 Part A: tool registry, permission checks,
+  audit log", "M4 Part B: approvals and audit log pages", "M4 Part C: memory scopes and
+  scheduler"), nothing pushed. Tests pass (pytest 391 + 1 skip, Vitest 142). The brief asked for
+  all three parts in one session, so the "one part per session" rule of CLAUDE.md was not
+  followed this time, on the owner's instruction.
+- The live village was not started, migrated or rebuilt. To use M4:
+  `./village stop && ./village setup && ./village start` (installs APScheduler, migrates 0006 →
+  0009, rebuilds the frontend).
+- Waiting for: the owner's check of M4 (see "How to verify M4 on the live village"), and still
+  the owner's checks of APP-01, M2 and M3; the milestone for Agent Chat and Communication History
+  (parked on M9); the ward names for the Business/Career/Research/Project/Personal templates; the
+  Node 20 vs 22 decision; the first CI run on GitHub.

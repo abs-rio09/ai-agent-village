@@ -261,6 +261,7 @@ def delegate(
         assigned_agent_id=agent.id,
         parent_task_id=parent.id,
         depth=parent.depth + 1,
+        kind="delegated",
         priority=parent.priority,
         input={"request": request_text(parent), "parent_task_id": parent.id, "routing": routing or {}},
         status=ASSIGNED,

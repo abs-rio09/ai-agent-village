@@ -14,6 +14,7 @@ from app import __version__
 from app.config import get_settings
 from app.db import get_session
 from app.models import get_meta
+from app.scheduler import get_scheduler
 
 router = APIRouter(tags=["health"])
 
@@ -25,6 +26,8 @@ class HealthResponse(BaseModel):
     journal_mode: str | None
     demo_mode: bool
     setup_completed: bool
+    scheduler: Literal["running", "stopped"]  # the in-process scheduler (APScheduler)
+    scheduler_jobs: int
 
 
 @router.get("/health", response_model=HealthResponse)
@@ -46,4 +49,6 @@ def health(response: Response, session: Session = Depends(get_session)) -> Healt
         journal_mode=journal_mode,
         demo_mode=get_settings().demo_mode,
         setup_completed=setup_completed,
+        scheduler="running" if get_scheduler().running else "stopped",
+        scheduler_jobs=len(get_scheduler().job_ids()),
     )

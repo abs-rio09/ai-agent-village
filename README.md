@@ -29,14 +29,14 @@ Built one milestone at a time. Each milestone is tested before the next one star
 | **M1** | Foundation: `./village` CLI, backend core, login, first-run wizard, app shell | ✅ Done, accepted |
 | **M2** | Organization: Upazila / Union / Ward / Office, templates, standard structure, tree view | ✅ Done, tested (owner sign-off on the live install pending) |
 | **M3** | Agents and tasks: agent registry and templates, Demo provider, Central Manager routing, task queue, delegation | ✅ Built, tested (owner sign-off on the live install pending) |
-| **M4** | Tool and permission enforcement, approvals, agent chat, AI model settings, communication history | ⏳ Planned |
+| **M4** | Control: tool registry, enforced permissions, approvals, audit log, memory scopes, scheduler | ✅ Built, tested (owner sign-off on the live install pending) |
 | **M5** | Interactive village map | ⏳ Planned |
-| **M6** | Memory, knowledge and documents | ⏳ Planned |
+| **M6** | Knowledge and documents (the three memory scopes were built in M4) | ⏳ Planned |
 | **M7** | Commerce and integrations | ⏳ Planned |
 | **M8** | Reports, settings, backup and restore, system health | ⏳ Planned |
-| **M9** | Background automation and release hardening | ⏳ Planned |
+| **M9** | Real AI providers and their settings, agent chat, communication history, release hardening | ⏳ Planned |
 
-✅ done · 🚧 in progress · ⏳ planned. Nothing is in progress right now. The split of M4–M9 is
+✅ done · 🚧 in progress · ⏳ planned. Nothing is in progress right now. The split of M5–M9 is
 provisional and may change. [`PROGRESS.md`](PROGRESS.md) is the detailed, honest log, including
 known issues.
 
@@ -79,9 +79,31 @@ known issues.
 - **Demo provider**: every reply starts with "[Demo]" and is a fixed outline for the agent's role.
   It needs no API key and makes no network call.
 
+**Control (M4)**
+
+- **Tool registry and enforcement**: every tool is registered in one place with a risk level
+  (READ / WRITE / SENSITIVE) and the permission it needs. An agent can use a tool only when it is
+  active, the tool is assigned to it and it holds that permission. One check, on the server, for
+  every call; nothing an agent writes to another agent can grant a tool. There is no shell, file
+  or network tool.
+- **Approval Center**: a sensitive action (send an external message, delete a file, spend money,
+  publish) is never run by an agent. Its task waits, and you approve or reject the request with
+  the requesting agent, action, reason, tool, expected changes and risk in front of you.
+- **Audit Log**: an append-only record of every tool use and refusal, approval decision, agent
+  change and login. The database itself refuses to change or delete an entry. No passwords,
+  tokens or keys.
+- **Memory**: Village, Upazila and Agent memory. An agent reaches only its own notes, its own
+  Upazila and (with the permission) the village's; customer data cannot be stored in the shared
+  Village memory. A task's working notes are deleted when the task ends.
+- **Schedules**: APScheduler inside the same process. A schedule only creates a task — every N
+  minutes or once a day — and the normal task queue runs it. One run creates at most one task,
+  also across restarts. Built in: an agent health check and a daily report counted from the database.
+
 > **Not there yet:** no AI model is connected. Routing is keyword matching, replies are Demo text,
-> and the Ollama and Anthropic providers are not implemented or contacted. Tools and permissions
-> are stored on an agent but not enforced, and no tool can run yet (M4).
+> and the Ollama and Anthropic providers are not implemented or contacted. The four sensitive
+> tools are placeholders: an approved request is only recorded ("approved — no external connector
+> yet") and nothing is sent, deleted, paid or published. Documents, calendar, product and
+> inventory tools are registered but answer "not available yet".
 
 ## Screenshots
 
@@ -212,8 +234,9 @@ Step-by-step guide: **[docs/MOBILE.md](docs/MOBILE.md)**.
   and no session is stored for offline use.
 - **Keys stay out of the database and logs**: an API key is written only to `data/.env`
   (mode 600) and is never returned by the API.
-- **No agent shell access, by design**: the tool catalogue an agent can be given has no shell,
-  terminal or free filesystem tool. Tools are stored only for now; enforcement and approvals are M4.
+- **No agent shell access, by design**: the tool registry has no shell, terminal, free filesystem
+  or network tool. Every tool call is checked against the agent's tools and permissions and
+  written to the audit log; sensitive tools always wait for your approval.
 
 This is a single-user tool for your own machine. It is served over plain HTTP on localhost and is
 not meant to be exposed to a network. The only supported way to reach it from another device is
@@ -227,8 +250,8 @@ cd frontend && npm test              # frontend (Vitest, runs once)
 cd frontend && npm run build         # type-check + production build
 ```
 
-Current results (M3 + installable app): **pytest 324 passed, 1 skipped** (the skipped test needs
-`shellcheck`) and **Vitest 116 passed**. Tests never touch the real database or
+Current results (M4): **pytest 391 passed, 1 skipped** (the skipped test needs
+`shellcheck`) and **Vitest 142 passed**. Tests never touch the real database or
 `data/.env`. The GitHub Actions workflow in [`ci.yml`](.github/workflows/ci.yml) runs both suites
 and the build on every push and pull request.
 
@@ -238,13 +261,15 @@ and the build on every push and pull request.
 ai-agent-village/
 ├── village              # Bash CLI: setup, start, stop, restart, status, logs, doctor
 ├── backend/
-│   ├── app/             # FastAPI app: main, config, db, models, security, api/ routers
-│   ├── alembic/         # hand-written migrations (0001–0006)
+│   ├── app/             # FastAPI app: main, config, db, models, security, api/ routers,
+│   │                    #   tools/ (registry), approvals, audit, memory, scheduler, task_runner
+│   ├── alembic/         # hand-written migrations (0001–0009)
 │   └── tests/           # pytest; every test gets a temp DB and a temp .env
 ├── frontend/
 │   └── src/             # React app: pages/, components/, typed API client, tests
 ├── docs/
 │   ├── SPEC.md          # feature specification
+│   ├── DECISIONS.md     # the fixed decisions and the choices made while building
 │   ├── MOBILE.md        # install as an app on desktop and Android (Tailscale)
 │   └── screenshots/
 ├── data/                # village.db and .env (git-ignored)
@@ -257,13 +282,12 @@ ai-agent-village/
 
 All of this is **planned, not built**. The order and grouping may change.
 
-- **M4**: tool registry with enforced tools and permissions, approval requests, agent chat, real AI
-  providers (Ollama, Anthropic) and their settings, a communication history page.
 - **M5**: interactive village map with agent characters; the tree view stays as the accessible alternative.
-- **M6**: village, Upazila and agent memory; local document upload and search.
+- **M6**: local document upload and search, and the document tools for agents.
 - **M7**: products, inventory and orders; Messenger integration in a sandbox mode.
 - **M8**: reports, application settings, backup and restore, system health and logs.
-- **M9**: background scheduler (APScheduler), persistent task queue, recovery after restart, release hardening.
+- **M9**: real AI providers (Ollama, Anthropic) and their settings, agent chat, a communication
+  history page, release hardening.
 
 ## How it was built
 

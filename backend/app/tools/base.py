@@ -28,6 +28,11 @@ class ToolError(Exception):
     is shown to the Chairman, so it must be plain and must not contain secrets."""
 
 
+class ToolDenied(ToolError):
+    """A rule inside the tool says this agent may not do this (for example: a memory scope it
+    has no right to). Audited as a denial, exactly like a refusal by check_tool_use."""
+
+
 class ToolUnavailable(ToolError):
     """The tool is registered but not built yet. Never pretend: say so."""
 

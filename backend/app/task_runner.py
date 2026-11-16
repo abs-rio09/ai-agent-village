@@ -12,6 +12,10 @@ WAITING_APPROVAL. When the Chairman approves, the task is RUNNING again and step
 carries out the approved call:
   0. resume a RUNNING task that has an approved, not yet executed approval.
 
+Tasks have a kind (models.Task.kind): a 'request' of the Chairman is routed by the Central
+Manager; a 'delegated' or 'scheduled' task is worked by its agent; 'health_check' and
+'daily_report' are the two system tasks the scheduler creates — the runner itself does them.
+
 Every status change goes through `move_task`, which checks app.task_status and only changes a
 task that still has the status the caller saw — so a cancel from the API and the worker cannot
 overwrite each other. Tasks persist in the database: on start, a task a crash left RUNNING is
@@ -23,16 +27,19 @@ from __future__ import annotations
 import logging
 import threading
 from collections.abc import Sequence
+from datetime import UTC, datetime, timedelta
 from typing import Any
+from zoneinfo import ZoneInfo
 
-from sqlalchemy import case, exists, select, update
+from sqlalchemy import case, delete, exists, func, select, update
 from sqlalchemy.orm import Session, aliased, sessionmaker
 
-from app import approvals, audit
+from app import approvals, audit, memory
 from app import central_manager as manager_rules
 from app.api.agents import agent_rows_query, location_of
+from app.config import get_settings
 from app.db import get_session_factory, utcnow
-from app.models import Agent, AgentMessage, Approval, Task
+from app.models import Agent, AgentMessage, Approval, AuditLog, ScheduleRun, Task
 from app.providers import AgentContext, AgentReply, TaskContext, ToolRequest, get_provider
 from app.task_status import (
     ACTIVE,
@@ -49,6 +56,9 @@ from app.tools import call_tool
 
 log = logging.getLogger("village.tasks")
 
+SCHEDULED = "scheduled"
+HEALTH_CHECK = "health_check"
+DAILY_REPORT = "daily_report"
 POLL_SECONDS = 0.5
 INTERRUPTED_NOTE = "Interrupted by a restart of the village; queued again."
 _PRIORITY_RANK = case({"high": 0, "normal": 1, "low": 2}, value=Task.priority, else_=1)
@@ -81,6 +91,8 @@ def move_task(db: Session, task: Task, status: str, **values: Any) -> bool:
         db.refresh(task)
         return False
     db.refresh(task)
+    if status in TERMINAL:
+        memory.clear_context(db, task.id)  # temporary task context does not outlive the task
     if previous == WAITING_APPROVAL and status in TERMINAL:
         # It ended without the Chairman's decision (cancelled): withdraw the open request.
         approvals.cancel_for_task(db, task.id, f"its task was {status.lower()} before a decision.")
@@ -357,6 +369,129 @@ def _resume(db: Session, task: Task) -> None:
     _run_tool_calls(db, task, agent, f"{task.output or ''}\n\n{_tool_line(outcome.tool_name, outcome.summary)}", later)
 
 
+# ---------------------------------------------------------------- system tasks (created by schedules)
+
+
+def _start_system_task(db: Session, task: Task, agent_id: int | None = None) -> bool:
+    if task.status == QUEUED and not move_task(db, task, ASSIGNED, assigned_agent_id=agent_id):
+        return False
+    if not move_task(db, task, RUNNING):
+        return False
+    db.commit()
+    return True
+
+
+def _health_check(db: Session, task: Task) -> None:
+    """Agent health check: a task that has been RUNNING for too long without any progress is
+    marked FAILED, and agents shown as busy without a task are set right again. A task that
+    waits for child tasks, for the Chairman's approval, or to carry out an approved call is
+    not stuck and is left alone."""
+    if not _start_system_task(db, task):
+        return
+    minutes = get_settings().stuck_task_minutes
+    cutoff = utcnow() - timedelta(minutes=minutes)
+    child = aliased(Task)
+    running = db.execute(select(func.count()).select_from(Task).where(Task.status == RUNNING, Task.id != task.id)).scalar_one()
+    stuck = db.execute(
+        select(Task)
+        .where(
+            Task.status == RUNNING,
+            Task.id != task.id,
+            Task.updated_at < cutoff,
+            ~exists().where(child.parent_task_id == Task.id, child.status.in_(ACTIVE)),
+            ~exists().where(Approval.task_id == Task.id, Approval.status == approvals.APPROVED, Approval.executed_at.is_(None)),
+        )
+        .order_by(Task.id)
+    ).scalars().all()
+    failed: list[int] = []
+    for victim in stuck:
+        reason = f"Marked as failed by the agent health check: RUNNING for more than {minutes} minutes without progress."
+        if move_task(db, victim, FAILED, error=reason):
+            report_to_parent(db, victim)
+            settle_agent(db, victim.assigned_agent_id)
+            audit.record(
+                db,
+                "task.stuck_failed",
+                agent=db.get(Agent, victim.assigned_agent_id) if victim.assigned_agent_id is not None else None,
+                task_id=victim.id,
+                decision="failed",
+                summary=f"Task #{victim.id} '{victim.title}' was stuck and has been marked FAILED.",
+            )
+            db.commit()
+            failed.append(victim.id)
+    # agents still shown as working or waiting although no task of theirs is open
+    stale = db.execute(select(Agent.id).where(Agent.runtime_state.in_(("working", "waiting")))).scalars().all()
+    for agent_id in stale:
+        settle_agent(db, agent_id)
+    # housekeeping: uneventful health checks older than a week, and old run keys
+    week_ago = utcnow() - timedelta(days=7)
+    db.execute(delete(Task).where(Task.kind == HEALTH_CHECK, Task.status.in_(TERMINAL), Task.created_at < week_ago, Task.id != task.id))
+    db.execute(delete(ScheduleRun).where(ScheduleRun.fired_at < utcnow() - timedelta(days=30)))
+    if failed:
+        output = f"Checked {running} running task(s). {len(failed)} had been stuck for more than {minutes} minutes and were marked FAILED: " + ", ".join(f"#{item}" for item in failed) + "."
+    else:
+        output = f"Checked {running} running task(s). None was stuck (limit: {minutes} minutes without progress)."
+    move_task(db, task, SUCCEEDED, output=output, error=None)
+    db.commit()
+
+
+def _daily_report(db: Session, task: Task) -> None:
+    """Daily report: counted from the database for one day of the village's calendar. It is a
+    summary of facts — no AI model writes it and nothing in it is estimated."""
+    manager = manager_rules.central_manager(db)
+    if not _start_system_task(db, task, manager.id if manager is not None else None):
+        return
+    info = task.input or {}
+    try:
+        tz = ZoneInfo(str(info.get("timezone") or "Asia/Dhaka"))
+        day = datetime.fromisoformat(str(info.get("day"))).date()
+    except (ValueError, KeyError):
+        tz, day = ZoneInfo("Asia/Dhaka"), datetime.now(ZoneInfo("Asia/Dhaka")).date()
+    start_local = datetime(day.year, day.month, day.day, tzinfo=tz)
+    start = start_local.astimezone(UTC).replace(tzinfo=None)
+    end = (start_local + timedelta(days=1)).astimezone(UTC).replace(tzinfo=None)
+    today = (Task.created_at >= start, Task.created_at < end)
+
+    def count(*conditions: Any) -> int:
+        return db.execute(select(func.count()).select_from(Task).where(*conditions)).scalar_one()
+
+    requests = (Task.parent_task_id.is_(None), Task.kind.in_(("request", SCHEDULED)), *today)
+    by_status = dict(db.execute(select(Task.status, func.count()).where(*requests).group_by(Task.status)).all())
+    total = sum(by_status.values())
+    failed_titles = db.execute(select(Task.id, Task.title).where(*requests, Task.status == FAILED).order_by(Task.id).limit(5)).all()
+    pending = db.execute(select(func.count()).select_from(Approval).where(Approval.status == approvals.PENDING)).scalar_one()
+    decided = dict(
+        db.execute(
+            select(Approval.status, func.count())
+            .where(Approval.decided_at >= start, Approval.decided_at < end, Approval.status.in_((approvals.APPROVED, approvals.REJECTED)))
+            .group_by(Approval.status)
+        ).all()
+    )
+    denied = db.execute(
+        select(func.count()).select_from(AuditLog).where(AuditLog.action == "tool.denied", AuditLog.created_at >= start, AuditLog.created_at < end)
+    ).scalar_one()
+    agents = dict(db.execute(select(Agent.lifecycle, func.count()).group_by(Agent.lifecycle)).all())
+    lines = [
+        f"Daily report for {day.isoformat()} ({tz.key})",
+        "",
+        f"Requests and scheduled tasks created: {total}",
+        *[f"  {status}: {by_status[status]}" for status in (SUCCEEDED, FAILED, "CANCELLED", RUNNING, WAITING_APPROVAL, QUEUED, ASSIGNED) if by_status.get(status)],
+        f"Delegated tasks created: {count(Task.kind == 'delegated', *today)}",
+        "",
+        f"Waiting for your approval right now: {pending}",
+        f"Approvals decided: {decided.get(approvals.APPROVED, 0)} approved, {decided.get(approvals.REJECTED, 0)} rejected",
+        f"Tool calls refused: {denied}",
+        "",
+        f"Agents: {agents.get('active', 0)} active, {agents.get('paused', 0)} paused, {agents.get('disabled', 0)} disabled",
+    ]
+    if failed_titles:
+        lines += ["", "Failed:"] + [f"  #{task_id} {title}" for task_id, title in failed_titles]
+    lines += ["", "Counted from the village's database. No AI model wrote this report."]
+    move_task(db, task, SUCCEEDED, output="\n".join(lines), error=None)
+    settle_agent(db, task.assigned_agent_id)
+    db.commit()
+
+
 def _next_step(db: Session) -> tuple[str, Task] | None:
     approved = db.execute(
         select(Task)
@@ -385,9 +520,13 @@ def _next_step(db: Session) -> tuple[str, Task] | None:
     ).scalar_one_or_none()
     if waiting is None:
         return None
-    if waiting.parent_task_id is None:
+    if waiting.kind == HEALTH_CHECK:
+        return "health", waiting
+    if waiting.kind == DAILY_REPORT:
+        return "report", waiting
+    if waiting.parent_task_id is None and waiting.kind != SCHEDULED:
         return "route", waiting
-    return "work", waiting
+    return "work", waiting  # delegated by an agent, or created by a schedule for one agent
 
 
 def run_once(session_factory: sessionmaker[Session] | None = None) -> bool:
@@ -400,7 +539,15 @@ def run_once(session_factory: sessionmaker[Session] | None = None) -> bool:
         kind, task = step
         task_id = task.id
         try:
-            {"resume": _resume, "finish": _finish_parent, "route": _route, "work": _work}[kind](db, task)
+            steps = {
+                "resume": _resume,
+                "finish": _finish_parent,
+                "route": _route,
+                "work": _work,
+                "health": _health_check,
+                "report": _daily_report,
+            }
+            steps[kind](db, task)
         except Exception as exc:  # noqa: BLE001  (one broken task must not block the queue forever)
             db.rollback()
             log.exception("task %s: step '%s' failed", task_id, kind)

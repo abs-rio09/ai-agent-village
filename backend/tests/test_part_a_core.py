@@ -28,6 +28,8 @@ def test_health_ok_wal_and_demo_mode(client: TestClient) -> None:
         "journal_mode": "wal",
         "demo_mode": True,
         "setup_completed": False,
+        "scheduler": "stopped",  # tests run without the scheduler thread (M4)
+        "scheduler_jobs": 0,
     }
     assert TEST_SECRET_KEY not in response.text
 

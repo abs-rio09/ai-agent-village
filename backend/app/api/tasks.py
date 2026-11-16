@@ -52,6 +52,8 @@ class TaskOut(BaseModel):
     assigned_agent: AgentRef | None
     parent_task_id: int | None
     depth: int
+    # request | delegated | scheduled | daily_report | health_check
+    kind: str
     priority: Priority
     input: dict[str, Any]
     output: str | None
@@ -132,6 +134,7 @@ def _tasks_out(db: Session, tasks: list[Task]) -> list[TaskOut]:
                 assigned_agent=agents.get(task.assigned_agent_id or 0),
                 parent_task_id=task.parent_task_id,
                 depth=task.depth,
+                kind=task.kind,
                 priority=task.priority,  # type: ignore[arg-type]
                 input=dict(task.input or {}),
                 output=task.output,
@@ -230,11 +233,15 @@ def list_tasks(
     status_filter: Status | None = Query(default=None, alias="status"),
     agent_id: int | None = Query(default=None),
     top_level: bool = Query(default=False),
+    system: bool = Query(default=False),
     limit: int = Query(default=100, ge=1, le=500),
     db: Session = Depends(get_session),
 ) -> list[TaskOut]:
-    """Newest first. `top_level=true` leaves out delegated (child) tasks."""
+    """Newest first. `top_level=true` leaves out delegated (child) tasks. The scheduler's health
+    checks (one every 10 minutes) are left out unless `system=true`."""
     query = select(Task).order_by(Task.id.desc()).limit(limit)
+    if not system:
+        query = query.where(Task.kind != "health_check")
     if status_filter is not None:
         query = query.where(Task.status == status_filter)
     if agent_id is not None:

@@ -20,7 +20,7 @@ function renderApp(path: string) {
   return userEvent.setup();
 }
 
-const PAGE_COUNT = 23; // the SPEC's 22 + Audit Log
+const PAGE_COUNT = 24; // the SPEC's 22 + Audit Log + Schedules
 
 const AUTHED = {
   "GET /api/approvals/pending-count": { body: { pending: 0 } },
@@ -134,7 +134,7 @@ describe("app shell", () => {
     const nav = await screen.findByRole("navigation", { name: "Village pages" });
     const built = [
       "Upazila Management", "Union Management", "Ward & Office Management", "Agent Management", "Agent Profile", "Task Center",
-      "Approval Center", "Audit Log",
+      "Approval Center", "Audit Log", "Schedules", "Memory & Knowledge Center",
     ];
     for (const label of built) {
       expect(within(nav).getByRole("link", { name: label })).toBeInTheDocument(); // no "M<n>" badge in the name
@@ -146,7 +146,7 @@ describe("app shell", () => {
     expect(within(nav).getByRole("link", { name: /^Communication History\s*M9$/ })).toBeInTheDocument();
   });
 
-  it("lists the 22 pages from the spec plus the Audit Log in the sidebar", async () => {
+  it("lists the 22 pages from the spec plus Audit Log and Schedules in the sidebar", async () => {
     mockFetch(AUTHED);
     renderApp("/");
     const nav = await screen.findByRole("navigation", { name: "Village pages" });

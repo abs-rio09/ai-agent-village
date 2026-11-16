@@ -82,6 +82,10 @@ class Settings(BaseSettings):
     allowed_hosts: str = "127.0.0.1,localhost"
     # The in-process task runner. Tests switch it off and drive the queue themselves.
     task_worker: bool = True
+    # The in-process scheduler (APScheduler). It only creates tasks; the task runner runs them.
+    scheduler: bool = True
+    # The agent health check fails a task that has been RUNNING without progress for this long.
+    stuck_task_minutes: int = 30
 
     @field_validator("host")
     @classmethod
@@ -95,6 +99,13 @@ class Settings(BaseSettings):
     def _valid_allowed_hosts(cls, value: str) -> str:
         hosts = [normalise_allowed_host(part) for part in value.split(",") if part.strip()]
         return ",".join(dict.fromkeys(hosts))
+
+    @field_validator("stuck_task_minutes")
+    @classmethod
+    def _valid_stuck_minutes(cls, value: int) -> int:
+        if not 1 <= value <= 24 * 60:
+            raise ValueError("stuck_task_minutes must be between 1 and 1440")
+        return value
 
     @field_validator("port")
     @classmethod

@@ -2,6 +2,7 @@
 
 Real tools (they only read or write the village's own database):
   task.create_child, agent.request_info, org.read, memory.read, memory.write
+  (memory: what an agent may read or write per scope is decided in app/memory.py)
 SENSITIVE placeholders (ALWAYS need the Chairman's approval; when approved they only record
 "approved — no external connector yet" and do nothing else):
   message.send_external, file.delete, money.spend, marketing.publish
@@ -18,8 +19,19 @@ from typing import Any
 
 from sqlalchemy import func, select
 
+from app import memory
 from app.models import Agent, AgentMessage, Office, UnionUnit, Upazila, Ward
-from app.tools.base import ApprovalText, Risk, Tool, ToolContext, ToolError, ToolResult, ToolUnavailable, register
+from app.tools.base import (
+    ApprovalText,
+    Risk,
+    Tool,
+    ToolContext,
+    ToolDenied,
+    ToolError,
+    ToolResult,
+    ToolUnavailable,
+    register,
+)
 
 NO_CONNECTOR = "approved — no external connector yet"
 
@@ -134,8 +146,66 @@ def _org_read(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
     )
 
 
-def _memory_not_yet(_ctx: ToolContext, _args: dict[str, Any]) -> ToolResult:
-    raise ToolUnavailable("The memory system is not available yet.")
+# ---- memory: the scope rules live in app/memory.py; a refusal there is a denial here
+
+
+def _scope(args: dict[str, Any], *, required: bool) -> str | None:
+    value = args.get("scope")
+    if value is None and not required:
+        return None
+    if not isinstance(value, str) or value.strip().upper() not in (*memory.SCOPES, memory.TASK):
+        raise ToolError("'scope' must be one of: village, upazila, agent, task.")
+    return value.strip().upper()
+
+
+def _snippet(text: str, limit: int = 160) -> str:
+    flat = " ".join(text.split())
+    return flat if len(flat) <= limit else flat[: limit - 1].rstrip() + "…"
+
+
+def _memory_read(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
+    _only(args, "scope", "query")
+    scope = _scope(args, required=False)
+    query = _text(args, "query", limit=200, required=False)
+    if scope == memory.TASK:
+        task = _need_task(ctx, "Read memory")
+        notes = [{"key": row.key, "value": row.value} for row in memory.context_of(ctx.db, task)]
+        return ToolResult(f"This task has {len(notes)} context note(s).", {"scope": "task", "notes": notes})
+    try:
+        found = memory.read_for_agent(ctx.db, ctx.agent, scope, query)
+    except memory.MemoryDenied as exc:
+        raise ToolDenied(str(exc)) from None
+    entries = [
+        {"id": row.id, "scope": row.scope.lower(), "title": row.title, "content": _snippet(row.content, 500)} for row in found
+    ]
+    where = scope.lower() if scope else " + ".join(item.lower() for item in memory.readable_scopes(ctx.db, ctx.agent))
+    if not entries:
+        return ToolResult(f"No memory found ({where}).", {"entries": []})
+    listed = "; ".join(f"[{entry['scope']}] {entry['title']}: {_snippet(entry['content'])}" for entry in entries[:5])
+    more = f" (+{len(entries) - 5} more)" if len(entries) > 5 else ""
+    return ToolResult(f"Found {len(entries)} memory entr{'y' if len(entries) == 1 else 'ies'} ({where}): {listed}{more}", {"entries": entries})
+
+
+def _memory_write(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
+    _only(args, "scope", "title", "content", "contains_customer_data")
+    scope = _scope(args, required=True)
+    title = _text(args, "title", limit=memory.TITLE_MAX)
+    content = _text(args, "content", limit=memory.CONTENT_MAX)
+    flagged = args.get("contains_customer_data", False)
+    if not isinstance(flagged, bool):
+        raise ToolError("'contains_customer_data' must be true or false.")
+    try:
+        if scope == memory.TASK:
+            task = _need_task(ctx, "Write memory")
+            memory.set_context(ctx.db, ctx.agent, task, title, content)
+            return ToolResult(f"Kept '{title}' in the context of this task. It is deleted when the task ends.", {"scope": "task"})
+        row = memory.write_for_agent(ctx.db, ctx.agent, scope, title, content, flagged)  # type: ignore[arg-type]
+    except memory.MemoryDenied as exc:
+        raise ToolDenied(str(exc)) from None
+    except memory.MemoryRefused as exc:
+        raise ToolError(str(exc)) from None
+    note = " It is marked as customer data." if row.contains_customer_data else ""
+    return ToolResult(f"Saved '{title}' to {scope.lower()} memory (entry #{row.id}).{note}", {"memory_id": row.id, "scope": scope.lower()})
 
 
 register(
@@ -172,20 +242,16 @@ register(
         name="Read memory",
         description="Read the memories the agent is allowed to see: village, its own Upazila, its own notes.",
         risk=Risk.READ,
-        run=_memory_not_yet,
-        available=False,
-        planned_for="M4 Part C",
+        run=_memory_read,
     )
 )
 register(
     Tool(
         key="memory.write",
         name="Write memory",
-        description="Save a note where the agent is permitted to write.",
+        description="Save a note where the agent is permitted to write: its own notes, its Upazila or the village.",
         risk=Risk.WRITE,
-        run=_memory_not_yet,
-        available=False,
-        planned_for="M4 Part C",
+        run=_memory_write,
     )
 )
 

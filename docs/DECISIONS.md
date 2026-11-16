@@ -63,3 +63,21 @@ The later sections record choices made while building; they can be changed, but 
   of a failed login is not stored (people type passwords into that field).
 - **The Central Manager delegates through `task.create_child`** like any other agent, so its
   routing is permission-checked and audited too.
+- **Memory scopes** (`backend/app/memory.py`). VILLAGE: read with "Read village memory", write with
+  "Write village memory". UPAZILA: only the agent's OWN Upazila, with "Read / Write Upazila
+  memory". AGENT: its own notes — always readable, writable with "Keep its own notes". An agent
+  cannot name another owner: the tools have no such argument. The Chairman sees and edits all.
+- **No customer data in VILLAGE memory.** A memory is marked as customer data by its writer or
+  when the text holds an e-mail address or a phone number; the application refuses that in
+  VILLAGE scope (for agents and for the Chairman) and a CHECK constraint refuses it again.
+- **Task context is temporary**: it belongs to one task and is deleted when the task ends.
+- **Schedules only create tasks.** APScheduler (3.x, in-process, job store in the same SQLite
+  database, the village's timezone — Asia/Dhaka by default, coalesce on, one instance per job)
+  never does work itself; the task runner does, with the same checks as for any task.
+- **One scheduled run, at most one task**: the run is identified by its scheduled time and that
+  key is UNIQUE. After downtime the missed runs of a schedule are ONE run, at the next start.
+- **A scheduled task goes straight to its agent** (task kind `scheduled`); it is not routed by
+  the Central Manager. The two built-in jobs are system tasks the runner does itself: the health
+  check and the daily report (counted from the database, written by no model).
+- **Never rebuild the `task` table in a migration.** SQLite's batch mode drops the old table, and
+  with foreign keys on that cascades to messages and approvals.

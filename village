@@ -399,7 +399,7 @@ report() {
 
 cmd_doctor() {
   local pid major mode avail_kb dbinfo db_exists="" current="" head="" journal="" key value deps_ok=0 built=0
-  local config_ok=0 bind extra_hosts
+  local config_ok=0 bind extra_hosts sched
 
   # python
   if python_ok; then
@@ -416,7 +416,7 @@ cmd_doctor() {
   fi
 
   # deps
-  if [[ -x "$PY" ]] && "$PY" -c 'import fastapi, uvicorn, sqlalchemy, alembic, pydantic_settings, argon2' 2>/dev/null; then
+  if [[ -x "$PY" ]] && "$PY" -c 'import fastapi, uvicorn, sqlalchemy, alembic, pydantic_settings, argon2, apscheduler' 2>/dev/null; then
     deps_ok=1
     report PASS "deps: backend packages import cleanly"
   else
@@ -537,6 +537,13 @@ cmd_doctor() {
   else
     report FAIL "migration: cannot inspect the database (run ./village setup)"
     report FAIL "wal: cannot inspect the database"
+  fi
+
+  # scheduler: APScheduler installed, schedule tables present, thread alive when the Village runs
+  if ((deps_ok)) && sched="$(cd "$BACKEND" && "$PY" -m app.schedcheck 2>/dev/null)" && [[ "$sched" == *$'\t'* ]]; then
+    report "${sched%%$'\t'*}" "${sched#*$'\t'}"
+  else
+    report FAIL "scheduler: cannot check (run ./village setup)"
   fi
 
   # memory

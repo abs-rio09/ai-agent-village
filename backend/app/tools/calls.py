@@ -20,7 +20,7 @@ from app import approvals, audit
 from app.agent_catalog import PERMISSIONS
 from app.db import utcnow
 from app.models import Agent, Approval, Task
-from app.tools.base import Tool, ToolContext, ToolError, get_tool
+from app.tools.base import Tool, ToolContext, ToolDenied, ToolError, get_tool
 
 _PERMISSION_LABELS = {item.key: item.label for item in PERMISSIONS}
 
@@ -137,6 +137,8 @@ def call_tool(
             return outcome("denied", "tool.denied", "denied", f"'{tool.name}' has no valid approval of the Chairman for this call.")
     try:
         result = tool.run(context, args)
+    except ToolDenied as exc:
+        return outcome("denied", "tool.denied", "denied", str(exc))
     except ToolError as exc:
         return outcome("error", "tool.error", "allowed", f"'{tool.name}' failed: {exc}")
     if approval is not None:

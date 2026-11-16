@@ -16,6 +16,7 @@ from app import __version__
 from app.api import api_router
 from app.config import get_settings
 from app.db import get_engine
+from app.scheduler import get_scheduler
 from app.seed import seed_if_migrated
 from app.task_runner import TaskWorker
 
@@ -75,6 +76,7 @@ def _is_local_proxy(request: Request) -> bool:
 async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
     settings = get_settings()  # fail fast on invalid configuration (e.g. a non-loopback host)
     worker: TaskWorker | None = None
+    scheduler = get_scheduler()
     if settings.db_file.exists():  # never create the database here: that is `./village setup`
         engine = get_engine()
         # Idempotent: puts back a missing agent template or a missing Central Manager.
@@ -87,9 +89,20 @@ async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
                 logging.getLogger("village.tasks").warning(
                     "the task worker was not started: the database has no task table (run ./village setup)"
                 )
+        if settings.scheduler:
+            if inspect(engine).has_table("schedule"):
+                try:
+                    scheduler.start()  # jobs only create tasks; the worker above runs them
+                except Exception:  # noqa: BLE001  (the village must still open without its scheduler)
+                    logging.getLogger("village.scheduler").exception("the scheduler could not be started")
+            else:
+                logging.getLogger("village.scheduler").warning(
+                    "the scheduler was not started: the database has no schedule table (run ./village setup)"
+                )
     try:
         yield
     finally:
+        scheduler.stop()
         if worker is not None:
             worker.stop()
 
