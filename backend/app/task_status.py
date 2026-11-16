@@ -20,7 +20,7 @@ TRANSITIONS: dict[str, frozenset[str]] = {
     ASSIGNED: frozenset({RUNNING, FAILED, CANCELLED}),
     # RUNNING → QUEUED happens only when a restart interrupted the task (crash recovery).
     RUNNING: frozenset({WAITING_APPROVAL, SUCCEEDED, FAILED, CANCELLED, QUEUED}),
-    WAITING_APPROVAL: frozenset({RUNNING, FAILED, CANCELLED}),  # approvals arrive in M4
+    WAITING_APPROVAL: frozenset({RUNNING, FAILED, CANCELLED}),  # approved / rejected / cancelled
     SUCCEEDED: frozenset(),
     FAILED: frozenset(),
     CANCELLED: frozenset(),

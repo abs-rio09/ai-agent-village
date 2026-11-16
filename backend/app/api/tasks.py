@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 
 from app import task_runner  # the module, not its names: task_runner imports this package too
 from app.db import as_utc, get_session
-from app.models import Agent, AgentMessage, Task
+from app.models import Agent, AgentMessage, Approval, Task
 from app.security import AuthContext, current_auth
 from app.task_status import ACTIVE, CANCELLED, QUEUED, TERMINAL
 
@@ -57,6 +57,8 @@ class TaskOut(BaseModel):
     output: str | None
     status: Status
     child_count: int
+    # An open approval request of this task, or of a task below it (None = nothing waits for the Chairman).
+    pending_approval_id: int | None = None
     created_at: datetime
     started_at: datetime | None
     completed_at: datetime | None
@@ -112,6 +114,7 @@ def _tasks_out(db: Session, tasks: list[Task]) -> list[TaskOut]:
                 select(Task.parent_task_id, func.count()).where(Task.parent_task_id.in_(ids)).group_by(Task.parent_task_id)
             ).all()
         )
+    waiting = _pending_approvals(db, set(ids))
     result = []
     for task in tasks:
         creator = _creator_agent_id(task.created_by)
@@ -134,6 +137,7 @@ def _tasks_out(db: Session, tasks: list[Task]) -> list[TaskOut]:
                 output=task.output,
                 status=task.status,  # type: ignore[arg-type]
                 child_count=child_counts.get(task.id, 0),
+                pending_approval_id=waiting.get(task.id),
                 created_at=as_utc(task.created_at),  # type: ignore[arg-type]
                 started_at=as_utc(task.started_at),
                 completed_at=as_utc(task.completed_at),
@@ -143,7 +147,24 @@ def _tasks_out(db: Session, tasks: list[Task]) -> list[TaskOut]:
     return result
 
 
-def _descendants(db: Session, task_id: int) -> list[Task]:
+def _pending_approvals(db: Session, task_ids: set[int]) -> dict[int, int]:
+    """task id → the oldest PENDING approval of that task or of a task below it. There are only
+    ever a few open requests, so each one is walked up its (at most 3 levels of) parents."""
+    found: dict[int, int] = {}
+    if not task_ids:
+        return found
+    for approval_id, task_id in db.execute(
+        select(Approval.id, Approval.task_id).where(Approval.status == "PENDING").order_by(Approval.id.desc())
+    ).all():
+        current: int | None = task_id
+        while current is not None:
+            if current in task_ids:
+                found[current] = approval_id
+            current = db.execute(select(Task.parent_task_id).where(Task.id == current)).scalar_one_or_none()
+    return found
+
+
+def descendants(db: Session, task_id: int) -> list[Task]:
     """Every task below `task_id`, level by level (delegation is at most a few levels deep)."""
     found: list[Task] = []
     level = [task_id]
@@ -155,7 +176,7 @@ def _descendants(db: Session, task_id: int) -> list[Task]:
 
 
 def _detail(db: Session, task: Task) -> TaskDetail:
-    below = _descendants(db, task.id)
+    below = descendants(db, task.id)
     outs = _tasks_out(db, [task, *below])
     messages = db.execute(
         select(AgentMessage).where(AgentMessage.task_id.in_([task.id, *[item.id for item in below]])).order_by(AgentMessage.id)
@@ -237,7 +258,7 @@ def cancel_task(task_id: int, db: Session = Depends(get_session)) -> TaskDetail:
             status_code=status.HTTP_409_CONFLICT, detail=f"This task is already {task.status} and cannot be cancelled."
         )
     agent_ids: set[int | None] = set()
-    for item in [task, *_descendants(db, task.id)]:
+    for item in [task, *descendants(db, task.id)]:
         # A task the worker finished in this very moment keeps its result (move_task returns False).
         if item.status in ACTIVE and task_runner.move_task(db, item, CANCELLED):
             agent_ids.add(item.assigned_agent_id)

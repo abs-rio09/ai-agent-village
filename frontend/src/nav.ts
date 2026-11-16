@@ -1,10 +1,12 @@
-// The 22 dashboard pages from docs/SPEC.md §13, grouped for the sidebar.
+// The 22 dashboard pages from docs/SPEC.md §13, grouped for the sidebar, plus the Audit Log
+// (M4) which the SPEC asks for in §15 but does not list as a page.
 //
 // `milestone` is the milestone in which a page gets built. Pages up to BUILT_MILESTONE exist
 // today; every other page renders an honest "Coming in M<n>" placeholder with no data.
 // NOTE: the M5-M9 assignment below is provisional — adjust it here if the build plan differs.
 // M3 built Agent Management, Agent Profile and the Task Center. AI Model Settings is M9 (owner's
-// decision, DEV-M4). Agent Chat was not part of M3 or M4.
+// decision, DEV-M4). M4 built the Approval Center and the Audit Log. Agent Chat and Communication
+// History were not part of M3 or M4; they are parked on M9 — an ASSUMPTION, change it here.
 
 import {
   Activity,
@@ -25,6 +27,7 @@ import {
   Package,
   Plug,
   Radio,
+  ScrollText,
   Settings,
   ShieldCheck,
   ShoppingCart,
@@ -70,7 +73,7 @@ export const NAV_GROUPS: NavGroup[] = [
     pages: [
       { id: "agents", path: "/agents", label: "Agent Management", icon: Bot, milestone: 3, blurb: "Create agents from templates, assign them to offices, and enable, pause or disable them." },
       { id: "agent-profile", path: "/agents/profile", label: "Agent Profile", icon: IdCard, milestone: 3, blurb: "One agent's role, instructions, tools, permissions and task history." },
-      { id: "agent-chat", path: "/chat", label: "Agent Chat", icon: MessagesSquare, milestone: 4, blurb: "Talk to an agent directly." },
+      { id: "agent-chat", path: "/chat", label: "Agent Chat", icon: MessagesSquare, milestone: 9, blurb: "Talk to an agent directly." },
     ],
   },
   {
@@ -78,7 +81,8 @@ export const NAV_GROUPS: NavGroup[] = [
     pages: [
       { id: "tasks", path: "/tasks", label: "Task Center", icon: ListChecks, milestone: 3, blurb: "Send requests to the Central Manager and follow how they are delegated." },
       { id: "approvals", path: "/approvals", label: "Approval Center", icon: ShieldCheck, milestone: 4, blurb: "Approve or reject sensitive actions that agents request." },
-      { id: "communication", path: "/communication", label: "Communication History", icon: Radio, milestone: 4, blurb: "The structured messages agents send to each other." },
+      { id: "audit", path: "/audit", label: "Audit Log", icon: ScrollText, milestone: 4, blurb: "Who did what and when: tool use, approvals, agent changes and logins." },
+      { id: "communication", path: "/communication", label: "Communication History", icon: Radio, milestone: 9, blurb: "The structured messages agents send to each other." },
     ],
   },
   {
@@ -118,7 +122,7 @@ export const NAV_GROUPS: NavGroup[] = [
 export const ALL_PAGES: PageDef[] = NAV_GROUPS.flatMap((group) => group.pages);
 
 /** The last milestone whose pages are really built. */
-export const BUILT_MILESTONE = 3;
+export const BUILT_MILESTONE = 4;
 
 export function isBuilt(page: PageDef): boolean {
   return page.milestone <= BUILT_MILESTONE || page.builtEarly === true;

@@ -314,6 +314,41 @@ class AgentMessage(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utcnow)
 
 
+# ---------------------------------------------------------------- approvals (M4)
+#
+# One row per request of an agent to use a SENSITIVE tool. The task waits (WAITING_APPROVAL)
+# until the Chairman approves or rejects. CANCELLED = the task ended before a decision.
+
+
+class Approval(Base):
+    __tablename__ = "approval"
+    __table_args__ = (
+        CheckConstraint("status IN ('PENDING', 'APPROVED', 'REJECTED', 'CANCELLED')", name="ck_approval_status"),
+        Index("ix_approval_status", "status"),
+        Index("ix_approval_task_id", "task_id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    agent_id: Mapped[int] = mapped_column(ForeignKey("agent.id"), nullable=False)
+    task_id: Mapped[int] = mapped_column(ForeignKey("task.id", ondelete="CASCADE"), nullable=False)
+    tool_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    args: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    # What the Chairman is shown (docs/SPEC.md §8F), written when the request is made.
+    action: Mapped[str] = mapped_column(Text, nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    expected_changes: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    risk_info: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="PENDING")
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utcnow)
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    decided_by: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    decision_note: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
+    # The tool requests of the same reply that come after this one; they run after an approval.
+    continuation: Mapped[list[dict[str, Any]]] = mapped_column(JSON, nullable=False, default=list)
+    executed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)  # set once the approved call ran
+    result: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
 # ---------------------------------------------------------------- audit log (M4)
 #
 # Append-only: the application only inserts (app/audit.py) and the database refuses UPDATE and

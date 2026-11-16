@@ -7,6 +7,8 @@ import { ALL_PAGES, isBuilt } from "./nav";
 import AgentProfile from "./pages/AgentProfile";
 import Agents from "./pages/Agents";
 import AgentWizard from "./pages/AgentWizard";
+import Approvals from "./pages/Approvals";
+import AuditLog from "./pages/AuditLog";
 import ComingSoon from "./pages/ComingSoon";
 import Login from "./pages/Login";
 import Overview from "./pages/Overview";
@@ -72,6 +74,8 @@ export default function App() {
         <Route path="/agents/new" element={<AgentWizard />} />
         <Route path="/agents/profile" element={<AgentProfile timezone={authed?.village.timezone} />} />
         <Route path="/tasks" element={<Tasks timezone={authed?.village.timezone} />} />
+        <Route path="/approvals" element={<Approvals timezone={authed?.village.timezone} />} />
+        <Route path="/audit" element={<AuditLog timezone={authed?.village.timezone} />} />
         <Route path="/settings" element={<SettingsPage timezone={authed?.village.timezone} />} />
         {ALL_PAGES.filter((page) => !isBuilt(page)).map((page) => (
           <Route key={page.id} path={page.path} element={<ComingSoon page={page} />} />

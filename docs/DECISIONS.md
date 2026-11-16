@@ -49,6 +49,11 @@ The later sections record choices made while building; they can be changed, but 
   neither are the permissions they require. The four that exist (`message.send_external`,
   `file.delete`, `money.spend`, `marketing.publish`) are placeholders: there is no connector
   behind them, and they say so.
+- **Approvals.** A SENSITIVE call writes a request and the task waits (WAITING_APPROVAL). The
+  Chairman decides once; a second decision is a 409. Approve → the task continues and the agent
+  is checked again at that moment. Reject → the task fails with "rejected by Chairman". A request
+  whose task is cancelled first becomes CANCELLED ("withdrawn") — never "rejected", because
+  nobody decided. An approval can be used exactly once.
 - **A tool that is not built answers "not available yet".** It is never simulated.
 - **A refused or failed tool call fails the task** with the reason. (There is no AI model yet
   that could react to a refusal and try something else.)

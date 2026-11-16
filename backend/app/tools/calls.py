@@ -5,6 +5,8 @@ its assigned tools and its permissions. Nothing in a task, a message or a tool a
 looked at, so an agent cannot be talked into a tool by another agent (docs/SPEC.md §8C).
 
 `call_tool` is the only caller of `Tool.run`. It checks, audits and runs, in that order.
+A SENSITIVE tool is never run by the first call: that call only writes an approval request.
+It runs when `call_tool` is called again with that request, approved by the Chairman.
 """
 
 from __future__ import annotations
@@ -14,9 +16,10 @@ from typing import Any, Literal
 
 from sqlalchemy.orm import Session
 
-from app import audit
+from app import approvals, audit
 from app.agent_catalog import PERMISSIONS
-from app.models import Agent, Task
+from app.db import utcnow
+from app.models import Agent, Approval, Task
 from app.tools.base import Tool, ToolContext, ToolError, get_tool
 
 _PERMISSION_LABELS = {item.key: item.label for item in PERMISSIONS}
@@ -66,9 +69,13 @@ def call_tool(
     args: dict[str, Any] | None = None,
     *,
     reason: str = "",
+    approval: Approval | None = None,
 ) -> ToolOutcome:
     """Check, audit and run one tool call for `agent`. Never raises for a refused or failed call:
-    the outcome says what happened. The caller commits."""
+    the outcome says what happened. The caller commits.
+
+    `approval` is the Chairman's approved request for exactly this call; without it a SENSITIVE
+    tool is not run — an approval request is written and the outcome is "pending_approval"."""
     args = dict(args or {})
     task_id = task.id if task is not None else None
     actor = audit.agent_actor(agent)
@@ -98,17 +105,42 @@ def call_tool(
     if not tool.available:
         planned = f" It is planned for {tool.planned_for}." if tool.planned_for else ""
         return outcome("unavailable", "tool.unavailable", "allowed", f"'{tool.name}' is not available yet.{planned}")
-    if tool.needs_approval:
-        # SENSITIVE tools never run without the Chairman's approval, and approvals are built in
-        # M4 Part B. Until then the call is refused — it is not executed and not faked.
-        return outcome(
-            "unavailable",
-            "tool.unavailable",
-            "allowed",
-            f"'{tool.name}' needs the Chairman's approval, and approvals are not available yet. Nothing was done.",
+    context = ToolContext(db=db, agent=agent, task=task)
+    if tool.needs_approval and approval is None:
+        # SENSITIVE: nothing runs now. The arguments are checked and the request is written.
+        if task is None:
+            return outcome("error", "tool.error", "allowed", f"'{tool.name}' can only be requested while working on a task.")
+        assert tool.describe is not None  # guaranteed by register()
+        try:
+            text = tool.describe(context, args)
+        except ToolError as exc:
+            return outcome("error", "tool.error", "allowed", f"'{tool.name}' failed: {exc}")
+        row = approvals.request(db, agent, task, tool, args, reason, text)  # writes "approval.created"
+        return ToolOutcome(
+            "pending_approval",
+            tool.key,
+            tool.name,
+            f"Waiting for the Chairman's approval (request #{row.id}): {text.action}",
+            approval_id=row.id,
         )
+    if tool.needs_approval:
+        usable = (
+            approval is not None
+            and approval.status == approvals.APPROVED
+            and approval.executed_at is None
+            and approval.tool_key == tool.key
+            and approval.agent_id == agent.id
+            and task is not None
+            and approval.task_id == task.id
+        )
+        if not usable:
+            return outcome("denied", "tool.denied", "denied", f"'{tool.name}' has no valid approval of the Chairman for this call.")
     try:
-        result = tool.run(ToolContext(db=db, agent=agent, task=task), args)
+        result = tool.run(context, args)
     except ToolError as exc:
         return outcome("error", "tool.error", "allowed", f"'{tool.name}' failed: {exc}")
+    if approval is not None:
+        approval.executed_at = utcnow()  # an approval is used exactly once
+        approval.result = result.summary
+        return outcome("ok", "tool.allowed", "approved", result.summary, result.data)
     return outcome("ok", "tool.allowed", "allowed", result.summary, result.data)

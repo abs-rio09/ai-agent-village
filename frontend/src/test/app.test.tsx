@@ -20,7 +20,10 @@ function renderApp(path: string) {
   return userEvent.setup();
 }
 
+const PAGE_COUNT = 23; // the SPEC's 22 + Audit Log
+
 const AUTHED = {
+  "GET /api/approvals/pending-count": { body: { pending: 0 } },
   "GET /api/setup/status": { body: { setup_completed: true } },
   "GET /api/auth/me": { body: USER },
   "GET /api/village": { body: VILLAGE },
@@ -125,28 +128,31 @@ describe("app shell", () => {
     expect(await screen.findByTestId("ai-mode-badge")).toHaveTextContent(label);
   });
 
-  it("no longer marks the pages built in M2 and M3 as coming later", async () => {
+  it("no longer marks the pages built in M2, M3 and M4 as coming later", async () => {
     mockFetch(AUTHED);
     renderApp("/");
     const nav = await screen.findByRole("navigation", { name: "Village pages" });
-    const built = ["Upazila Management", "Union Management", "Ward & Office Management", "Agent Management", "Agent Profile", "Task Center"];
+    const built = [
+      "Upazila Management", "Union Management", "Ward & Office Management", "Agent Management", "Agent Profile", "Task Center",
+      "Approval Center", "Audit Log",
+    ];
     for (const label of built) {
       expect(within(nav).getByRole("link", { name: label })).toBeInTheDocument(); // no "M<n>" badge in the name
     }
-    expect(BUILT_MILESTONE).toBe(3);
-    // not part of M3: still honest placeholders
-    expect(within(nav).getByRole("link", { name: /^Agent Chat\s*M4$/ })).toBeInTheDocument();
+    expect(BUILT_MILESTONE).toBe(4);
+    // not part of M3 or M4: still honest placeholders
+    expect(within(nav).getByRole("link", { name: /^Agent Chat\s*M9$/ })).toBeInTheDocument();
     expect(within(nav).getByRole("link", { name: /^AI Model Settings\s*M9$/ })).toBeInTheDocument();
-    expect(within(nav).getByRole("link", { name: /^Approval Center\s*M4$/ })).toBeInTheDocument();
+    expect(within(nav).getByRole("link", { name: /^Communication History\s*M9$/ })).toBeInTheDocument();
   });
 
-  it("lists all 22 pages from the spec in the sidebar", async () => {
+  it("lists the 22 pages from the spec plus the Audit Log in the sidebar", async () => {
     mockFetch(AUTHED);
     renderApp("/");
     const nav = await screen.findByRole("navigation", { name: "Village pages" });
-    expect(ALL_PAGES).toHaveLength(22);
-    expect(new Set(ALL_PAGES.map((page) => page.path)).size).toBe(22);
-    expect(within(nav).getAllByRole("link")).toHaveLength(22);
+    expect(ALL_PAGES).toHaveLength(PAGE_COUNT);
+    expect(new Set(ALL_PAGES.map((page) => page.path)).size).toBe(PAGE_COUNT);
+    expect(within(nav).getAllByRole("link")).toHaveLength(PAGE_COUNT);
     for (const page of ALL_PAGES) {
       expect(within(nav).getByRole("link", { name: new RegExp(`^${page.label}`) })).toBeInTheDocument();
     }
@@ -159,10 +165,10 @@ describe("app shell", () => {
 
     await waitFor(() => expect(callsTo("GET /api/health")).toHaveLength(2)); // the overview and the header's connection check
     const before = fetchMock.mock.calls.length;
-    await user.click(within(nav).getByRole("link", { name: /^Approval Center/ }));
+    await user.click(within(nav).getByRole("link", { name: /^Agent Chat/ }));
     const main = screen.getByRole("main");
-    expect(within(main).getByRole("heading", { level: 1, name: "Approval Center" })).toBeInTheDocument();
-    expect(within(main).getByText("Coming in M4")).toBeInTheDocument();
+    expect(within(main).getByRole("heading", { level: 1, name: "Agent Chat" })).toBeInTheDocument();
+    expect(within(main).getByText("Coming in M9")).toBeInTheDocument();
     expect(within(main).queryByRole("table")).not.toBeInTheDocument();
     expect(fetchMock.mock.calls).toHaveLength(before); // the placeholder asked the server for nothing
 

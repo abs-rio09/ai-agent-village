@@ -238,12 +238,12 @@ export default function Overview({ village }: { village: Village }) {
         <section className="panel p-5 md:col-span-2" aria-label="What exists today">
           <h2 className="eyebrow">What exists today</h2>
           <p className="mt-3 text-sm leading-relaxed text-mist-300">
-            Milestones 1 to 3: a secure login, the database, the organization (Upazilas, Unions, Wards, Offices) and
+            Milestones 1 to 4: a secure login, the database, the organization (Upazilas, Unions, Wards, Offices) and
             now agents and tasks. Agents are created from templates, and a request sent in the Task Center is routed
             by the Central Manager to an agent. Replies come from the Demo provider and are marked{" "}
             <span className="font-mono text-xs text-mist-100">[Demo]</span>: no AI model is connected. Since{" "}
-            <span className="font-mono text-xs text-mist-100">M4</span> an agent&apos;s tools and permissions are enforced
-            and every tool use is written to the audit log.
+            <span className="font-mono text-xs text-mist-100">M4</span> an agent&apos;s tools and permissions are enforced,
+            sensitive actions wait in the Approval Center for your decision, and every step is written to the Audit Log.
           </p>
         </section>
       </div>

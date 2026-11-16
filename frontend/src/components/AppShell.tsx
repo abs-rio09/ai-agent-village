@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { NavLink, Outlet, useLocation } from "react-router";
 
 import type { User, Village } from "../api";
+import { usePendingApprovals } from "../approvalCount";
 import { useIsMobile } from "../hooks";
 import { NAV_GROUPS, findPage, isBuilt } from "../nav";
 import { useSession } from "../session";
@@ -10,7 +11,7 @@ import { ConnectionIndicator } from "./pwa";
 import { AiModeBadge, VillageCrest, cx } from "./ui";
 
 /** The full page list. `touch` makes every row a 44 px touch target (the phone's "More" sheet). */
-function Sidebar({ onNavigate, touch = false }: { onNavigate?: () => void; touch?: boolean }) {
+function Sidebar({ onNavigate, touch = false, pending = 0 }: { onNavigate?: () => void; touch?: boolean; pending?: number }) {
   return (
     <nav aria-label="Village pages" className="thin-scroll flex h-full flex-col gap-4 overflow-y-auto px-3 pb-6 pt-3">
       {NAV_GROUPS.map((group) => (
@@ -37,6 +38,15 @@ function Sidebar({ onNavigate, touch = false }: { onNavigate?: () => void; touch
                   >
                     <Icon size={15} aria-hidden="true" className="shrink-0 opacity-80" />
                     <span className="min-w-0 flex-1 leading-snug">{page.label}</span>
+                    {page.id === "approvals" && pending > 0 && (
+                      <span
+                        data-testid="pending-approvals"
+                        aria-label={`${pending} waiting for your decision`}
+                        className="rounded-full bg-lantern-400 px-1.5 font-mono text-[11px] font-semibold leading-5 text-night-950"
+                      >
+                        {pending}
+                      </span>
+                    )}
                     {!isBuilt(page) && (
                       <span
                         className="rounded border border-night-600 px-1 font-mono text-[10px] text-mist-500"
@@ -78,7 +88,7 @@ const BOTTOM_ITEMS: Array<{ to: string; label: string; icon: LucideIcon; end?: b
 const BOTTOM_ITEM =
   "flex min-h-14 w-full flex-col items-center justify-center gap-0.5 px-1 text-[11px] font-medium transition";
 
-function BottomNav({ moreOpen, onMore }: { moreOpen: boolean; onMore: () => void }) {
+function BottomNav({ moreOpen, onMore, pending }: { moreOpen: boolean; onMore: () => void; pending: number }) {
   return (
     <nav
       aria-label="Main"
@@ -108,7 +118,18 @@ function BottomNav({ moreOpen, onMore }: { moreOpen: boolean; onMore: () => void
             onClick={onMore}
             className={cx(BOTTOM_ITEM, moreOpen ? "text-lantern-300" : "text-mist-400")}
           >
-            <Ellipsis size={20} aria-hidden="true" />
+            <span className="relative">
+              <Ellipsis size={20} aria-hidden="true" />
+              {pending > 0 && (
+                <span
+                  data-testid="pending-approvals-dot"
+                  aria-label={`${pending} approval request${pending === 1 ? "" : "s"} waiting`}
+                  className="absolute -right-3 -top-1.5 rounded-full bg-lantern-400 px-1 font-mono text-[10px] font-semibold leading-4 text-night-950"
+                >
+                  {pending}
+                </span>
+              )}
+            </span>
             More
           </button>
         </li>
@@ -118,7 +139,7 @@ function BottomNav({ moreOpen, onMore }: { moreOpen: boolean; onMore: () => void
 }
 
 /** The full menu as a sheet that slides over the page from the bottom (phones only). */
-function MoreSheet({ user, village, onClose }: { user: User; village: Village; onClose: () => void }) {
+function MoreSheet({ user, village, onClose, pending }: { user: User; village: Village; onClose: () => void; pending: number }) {
   const panel = useRef<HTMLDivElement>(null);
   useEffect(() => {
     panel.current?.focus();
@@ -146,7 +167,7 @@ function MoreSheet({ user, village, onClose }: { user: User; village: Village; o
           </button>
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto">
-          <Sidebar touch onNavigate={onClose} />
+          <Sidebar touch onNavigate={onClose} pending={pending} />
         </div>
         <div className="flex items-center justify-between gap-3 border-t border-night-700 px-5 py-3">
           <p className="min-w-0 truncate text-xs text-mist-400">
@@ -163,6 +184,7 @@ export default function AppShell({ user, village }: { user: User; village: Villa
   const { logout } = useSession();
   const location = useLocation();
   const isMobile = useIsMobile();
+  const pending = usePendingApprovals();
   const [menuOpen, setMenuOpen] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
   const [logoutError, setLogoutError] = useState<string | null>(null);
@@ -185,13 +207,13 @@ export default function AppShell({ user, village }: { user: User; village: Villa
       {!isMobile && (
         <aside className="sticky top-0 hidden h-screen w-[17.5rem] shrink-0 flex-col border-r border-night-700 bg-night-900/80 backdrop-blur lg:flex">
           <Brand />
-          <Sidebar />
+          <Sidebar pending={pending} />
         </aside>
       )}
 
       {/* phones: bottom navigation; "More" opens the full menu as a sheet */}
-      {isMobile && <BottomNav moreOpen={menuOpen} onMore={() => setMenuOpen((open) => !open)} />}
-      {isMobile && menuOpen && <MoreSheet user={user} village={village} onClose={() => setMenuOpen(false)} />}
+      {isMobile && <BottomNav moreOpen={menuOpen} onMore={() => setMenuOpen((open) => !open)} pending={pending} />}
+      {isMobile && menuOpen && <MoreSheet user={user} village={village} onClose={() => setMenuOpen(false)} pending={pending} />}
 
       {/* tablets and narrow desktop windows: drawer */}
       {!isMobile && menuOpen && (
@@ -214,7 +236,7 @@ export default function AppShell({ user, village }: { user: User; village: Villa
                 <X size={18} aria-hidden="true" />
               </button>
             </div>
-            <Sidebar onNavigate={() => setMenuOpen(false)} />
+            <Sidebar onNavigate={() => setMenuOpen(false)} pending={pending} />
           </aside>
         </div>
       )}

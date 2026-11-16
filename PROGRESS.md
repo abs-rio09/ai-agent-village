@@ -24,9 +24,10 @@ Milestone **M3 — Agents & Tasks**: Parts A, B and C are **built and committed,
 by the owner**. Checked on a scratch database and port 8013 only; the live village on port 8000
 was not touched and still runs the older code (see "How to verify M3 on the live village").
 
-Milestone **M4 — Control**: Part A (tool registry, permission checks, audit log) is **built and
-committed, not yet accepted by the owner**. Parts B (approvals) and C (memory, scheduler) follow.
-Checked with the test suites and on a scratch server (port 8013); the live village was not touched.
+Milestone **M4 — Control**: Parts A (tool registry, permission checks, audit log) and B (approvals,
+Approval Center, Audit Log page) are **built and committed, not yet accepted by the owner**. Part C
+(memory, scheduler) follows. Checked with the test suites and on a scratch server (port 8013); the
+live village was not touched.
 
 ## Done
 ### M1 Part A — scaffold, backend core, `./village` CLI
@@ -586,6 +587,69 @@ Checked with the test suites and on a scratch server (port 8013); the live villa
   `task.create_child` have no Demo phrase, so in the browser only the Central Manager's
   delegation produces tool events (they are covered by pytest with a scripted test provider).
 
+### M4 Part B — approvals, Approval Center, Audit Log page (2026-11-16)
+- Migration `0008_approvals.py` (schema_version 8): table `approval` — requesting agent, task,
+  tool, arguments, requested action, reason, expected changes, risk information, status
+  (`PENDING` / `APPROVED` / `REJECTED` / `CANCELLED`), `decided_at`, `decided_by`, a note, what the
+  task still has to do afterwards (`continuation`), `executed_at` and `result`. The downgrade fails
+  tasks that are still WAITING_APPROVAL (they could never be decided).
+  **`CANCELLED` is a fourth status the brief did not list**: a request whose task was cancelled
+  before a decision. Calling that "rejected" would put a decision in the record that nobody made.
+- Flow (`backend/app/approvals.py`, `tools/calls.py`, `task_runner.py`): a SENSITIVE tool call is
+  permission-checked as before, then only an approval request is written and the task moves to
+  WAITING_APPROVAL (through `move_task`). **Approve** → task RUNNING → the worker carries out the
+  approved call and then whatever the reply asked for after it. **Reject** → task FAILED with
+  "'<tool>' was rejected by Chairman." (plus the note), and work it had handed on is cancelled.
+  The agent is checked again when the approved call runs: paused or stripped of the tool in the
+  meantime → not carried out, task FAILED. An approval is used exactly once (`executed_at`).
+  A decision is one conditional UPDATE, so a second one answers **409**; six parallel decisions
+  give exactly one 200 (tested).
+- **What an approved SENSITIVE tool does: nothing outside the database.** The result is
+  "approved — no external connector yet. Nothing was sent." (… "No file was deleted." / "No money
+  was spent." / "Nothing was published."). The Approval Center says this on the page and in the
+  confirm dialog.
+- Restart: a WAITING_APPROVAL task just keeps waiting; a task approved right before a restart
+  stays RUNNING and is resumed, so the Chairman is not asked twice.
+- **Demo phrase to try it without an API key: `send message to customer`** (any "send (a|the)
+  message|email|reply to <someone>" works). The Demo agent then asks for `message.send_external`.
+  The agent needs the tool "Send external message" AND the permission "Send external messages";
+  neither is a template default (sensitive things are never a default), so tick both on the
+  agent's profile first. Without them the same request FAILS with the reason and a `tool.denied`
+  audit entry — that is the enforcement of Part A, visible in the browser.
+- API (session required): `GET /api/approvals?status=`, `GET /api/approvals/pending-count`,
+  `GET /api/approvals/{id}`, `POST /api/approvals/{id}/approve`, `…/reject` (optional
+  `{"note": "…"}`). Tasks carry `pending_approval_id` (their own open request or one of a task
+  below them).
+- Frontend: **Approval Center** (`pages/Approvals.tsx`): tabs Pending / Approved / Rejected /
+  Withdrawn / All, one card per request with all §8F fields (requesting agent, requested action,
+  reason, tool, expected changes, risk information) plus task, time, decision and result;
+  Approve / Reject open a confirm dialog with an optional note; `/approvals?id=` shows one request.
+  **Audit Log** (`pages/AuditLog.tsx`, new page `/audit`): table with Time / Who / Action / Agent /
+  Task / Tool / Decision / Summary, filters (action or action group, agent #, task #, also from
+  the address), 50 per page; on a phone a list of cards instead of the wide table.
+  Sidebar: a count badge on "Approval Center" (on a phone on "More"), asked every 20 s while the
+  app is visible and right after a decision. Task Center: "needs your approval" on the request,
+  a notice with "Open approval request #n" in the task, and a link on the waiting child task.
+- `nav.ts`: `BUILT_MILESTONE = 4`; the sidebar has 23 pages now (the SPEC's 22 + Audit Log).
+  **Assumption:** Agent Chat and Communication History were on "M4" but are not in the M4 brief;
+  they now say "M9" like AI Model Settings. Change it in `nav.ts` if the plan differs.
+- Tests: pytest **366 passed, 1 skipped** (17 new in `tests/test_m4_approvals.py`: 0008 up/down,
+  Demo phrase → WAITING_APPROVAL with every §8F field, approve → continues, reject → FAILED,
+  double decision 409 in all four orders, parallel decisions, 401 / foreign Origin 403, no tool or
+  no permission → no approval at all, agent paused after asking, cancel withdraws the request,
+  several tools in one reply, bad arguments, restart). Vitest **133 passed** (17 new in
+  `approvals.test.tsx`: the card's fields, confirm → POST with the note, reject, 409 shown, tabs,
+  `?id=`, the badge on desktop and phone, the Task Center link, the audit table, its filters,
+  paging and phone layout). `tsc --noEmit` and a scratch `vite build` + `build-sw` pass.
+- Checked on a real server with curl (scratch DB migrated 0007 → 0008, port 8013, stopped
+  afterwards): without the tool → FAILED "…is not assigned to 'Sumi'"; with tool + permission →
+  request RUNNING with `pending_approval_id`, count 1; approve without a session 401; approve →
+  "approved — no external connector yet. Nothing was sent." and the task SUCCEEDED; second
+  decision 409; reject → FAILED "…was rejected by Chairman."; the four approval events in
+  `/api/audit`. No traceback in the server log.
+- **Not tested in Part B:** the two pages in a real browser (done in the M4 final check — see
+  there), and a phone.
+
 ## How to verify APP-01 on desktop and Android
 First update the live village (migration 0006 and a new frontend build):
 `./village stop && ./village setup && ./village start`. Details for every step: `docs/MOBILE.md`.
@@ -650,7 +714,7 @@ frontend), log in, then:
 8. Overview again: the four counts match.
 
 ## In progress
-- M4: Part A committed; Parts B (approvals) and C (memory scopes, scheduler) are next.
+- M4: Parts A and B committed; Part C (memory scopes, scheduler) is next.
 
 ## Broken & known issues
 - `VILLAGE_SECRET_KEY` is required and generated, but nothing uses it yet (session tokens are

@@ -2,15 +2,25 @@
 
 Every reply starts with "[Demo]" and says in plain words that it is not an AI answer. The text
 is a fixed outline for the agent's role, so the whole task flow can be tried without any key.
+
+Demo phrases: a few fixed wordings make the Demo agent ASK for a tool, so tools, permissions
+and approvals can be tried without an AI model. Whether the tool runs is decided elsewhere
+(app.tools.call_tool) — the provider only asks.
+  "send message to customer"   → message.send_external (SENSITIVE: needs the Chairman's approval)
 """
 
 from __future__ import annotations
 
 import re
 
-from app.providers.base import AgentContext, Provider, TaskContext
+from app.providers.base import AgentContext, AgentReply, Provider, TaskContext, ToolRequest
 
 DEMO_PREFIX = "[Demo]"
+# The phrase documented for trying the approval flow. Any "send (a) message/email/reply to X" works.
+DEMO_APPROVAL_PHRASE = "send message to customer"
+_SEND_EXTERNAL = re.compile(
+    r"\bsend\s+(?:(?:an?|the)\s+)?(message|e-?mail|reply)\s+to\s+(?:(?:the|a|an|our|my)\s+)?([a-z][a-z'-]{1,30})", re.I
+)
 
 # What an agent of each template would do with a request: three fixed steps per role.
 _PLAYBOOKS: dict[str, tuple[str, str, str]] = {
@@ -120,7 +130,29 @@ class DemoProvider(Provider):
     def is_configured(self) -> bool:
         return True  # needs no key and no network
 
-    def reply(self, agent: AgentContext, task: TaskContext) -> str:
+    def reply(self, agent: AgentContext, task: TaskContext) -> str | AgentReply:
+        text = self._outline(agent, task)
+        wanted = _SEND_EXTERNAL.search(f"{task.title}\n{task.description}")
+        if wanted is None:
+            return text  # plain text: no tool is asked for
+        channel, recipient = wanted.group(1).lower().replace("-", ""), wanted.group(2).lower()
+        text += (
+            "\n\nThe request asks for a message to someone outside the village, so this agent asks to use the "
+            "tool “Send external message”. That tool always needs the Chairman's approval — and even when it is "
+            "approved, nothing is really sent: no connector exists yet."
+        )
+        call = ToolRequest(
+            tool="message.send_external",
+            args={
+                "recipient": recipient,
+                "channel": "message" if channel == "reply" else channel,
+                "body": f"{DEMO_PREFIX} draft, not written by an AI model: {_one_line(task.title, 300)}",
+            },
+            reason=f"The request says: “{_one_line(task.title, 200)}”",
+        )
+        return AgentReply(text=text, tool_calls=(call,))
+
+    def _outline(self, agent: AgentContext, task: TaskContext) -> str:
         steps = _PLAYBOOKS.get(agent.template_key or "", _GENERIC_PLAYBOOK)
         where = f", {agent.location}" if agent.location else ""
         lines = [

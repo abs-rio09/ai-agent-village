@@ -7,7 +7,10 @@ A step is one of:
 
 An agent's reply may ask for tools. Each request goes through `app.tools.call_tool`, which
 checks the agent's tools and permissions and writes the audit log; a refused or failed tool
-call fails the task with the reason.
+call fails the task with the reason. A SENSITIVE tool is not run: the task moves to
+WAITING_APPROVAL. When the Chairman approves, the task is RUNNING again and step 0 below
+carries out the approved call:
+  0. resume a RUNNING task that has an approved, not yet executed approval.
 
 Every status change goes through `move_task`, which checks app.task_status and only changes a
 task that still has the status the caller saw — so a cancel from the API and the worker cannot
@@ -25,13 +28,23 @@ from typing import Any
 from sqlalchemy import case, exists, select, update
 from sqlalchemy.orm import Session, aliased, sessionmaker
 
-from app import audit
+from app import approvals, audit
 from app import central_manager as manager_rules
 from app.api.agents import agent_rows_query, location_of
 from app.db import get_session_factory, utcnow
-from app.models import Agent, AgentMessage, Task
+from app.models import Agent, AgentMessage, Approval, Task
 from app.providers import AgentContext, AgentReply, TaskContext, ToolRequest, get_provider
-from app.task_status import ACTIVE, ASSIGNED, FAILED, QUEUED, RUNNING, SUCCEEDED, TERMINAL, ensure_transition
+from app.task_status import (
+    ACTIVE,
+    ASSIGNED,
+    FAILED,
+    QUEUED,
+    RUNNING,
+    SUCCEEDED,
+    TERMINAL,
+    WAITING_APPROVAL,
+    ensure_transition,
+)
 from app.tools import call_tool
 
 log = logging.getLogger("village.tasks")
@@ -50,6 +63,7 @@ def move_task(db: Session, task: Task, status: str, **values: Any) -> bool:
     refreshed — when someone else changed it first. Sets started_at / completed_at. The caller
     commits; call this before other writes of the same step, because a lost race rolls back."""
     ensure_transition(task.status, status)
+    previous = task.status
     now = utcnow()
     values = {"status": status, "updated_at": now, **values}
     if status == RUNNING:
@@ -67,15 +81,21 @@ def move_task(db: Session, task: Task, status: str, **values: Any) -> bool:
         db.refresh(task)
         return False
     db.refresh(task)
+    if previous == WAITING_APPROVAL and status in TERMINAL:
+        # It ended without the Chairman's decision (cancelled): withdraw the open request.
+        approvals.cancel_for_task(db, task.id, f"its task was {status.lower()} before a decision.")
     return True
 
 
 def settle_agent(db: Session, agent_id: int | None) -> None:
     """Runtime state after a step: an active agent that still has RUNNING tasks is waiting for
-    their child tasks, otherwise it is idle. Paused and disabled agents stay offline."""
+    their child tasks, and one with a task in WAITING_APPROVAL is waiting for the Chairman;
+    otherwise it is idle. Paused and disabled agents stay offline."""
     if agent_id is None:
         return
-    busy = db.execute(select(Task.id).where(Task.assigned_agent_id == agent_id, Task.status == RUNNING).limit(1)).first()
+    busy = db.execute(
+        select(Task.id).where(Task.assigned_agent_id == agent_id, Task.status.in_((RUNNING, WAITING_APPROVAL))).limit(1)
+    ).first()
     db.execute(
         update(Agent)
         .where(Agent.id == agent_id, Agent.lifecycle == "active")
@@ -97,7 +117,7 @@ def _message(db: Session, task: Task, sender_id: int, receiver_id: int, payload:
     db.add(AgentMessage(sender_agent_id=sender_id, receiver_agent_id=receiver_id, task_id=task.id, type="result", payload=payload))
 
 
-def _report_to_parent(db: Session, task: Task) -> None:
+def report_to_parent(db: Session, task: Task) -> None:
     """Log the result of a delegated task as a message from its agent to the delegating agent."""
     if task.parent_task_id is None or task.assigned_agent_id is None:
         return
@@ -119,8 +139,15 @@ def recover_interrupted(db: Session) -> int:
     """After a restart: tasks left RUNNING go back to QUEUED with a note in `error`, and no agent
     is still shown as working. Returns the number of tasks that were queued again."""
     interrupted = db.execute(select(Task).where(Task.status == RUNNING).order_by(Task.id)).scalars().all()
+    # A task the Chairman approved just before the restart only has to carry out that approved
+    # call: it stays RUNNING and is resumed. Queuing it again would ask for the approval twice.
+    approved = set(
+        db.execute(select(Approval.task_id).where(Approval.status == approvals.APPROVED, Approval.executed_at.is_(None))).scalars()
+    )
     recovered = 0
     for task in interrupted:
+        if task.id in approved:
+            continue
         if move_task(db, task, QUEUED, error=INTERRUPTED_NOTE):
             recovered += 1
     db.execute(
@@ -138,7 +165,7 @@ def recover_interrupted(db: Session) -> int:
 
 def _fail(db: Session, task: Task, reason: str, **values: Any) -> None:
     if move_task(db, task, FAILED, error=reason, **values):
-        _report_to_parent(db, task)
+        report_to_parent(db, task)
     settle_agent(db, task.assigned_agent_id)
     db.commit()
 
@@ -160,7 +187,7 @@ def _finish_parent(db: Session, task: Task) -> None:
         reasons = "; ".join(f"task #{child.id} {child.status}" + (f" ({child.error})" if child.error else "") for child in children)
         moved = move_task(db, task, FAILED, error=f"None of the delegated tasks succeeded: {reasons}")
     if moved:
-        _report_to_parent(db, task)
+        report_to_parent(db, task)
     settle_agent(db, task.assigned_agent_id)
     db.commit()
 
@@ -217,30 +244,44 @@ def _run_tool_calls(db: Session, task: Task, agent: Agent, output: str, calls: S
     """Run the tools an agent asked for, in order, then finish the task (or leave it RUNNING
     while child tasks it created are still open). Everything here is ONE transaction: if the
     task was cancelled meanwhile, `move_task` loses the race and nothing of it is kept."""
-    for call in calls:
+    for index, call in enumerate(calls):
         outcome = call_tool(db, agent, task, call.tool, call.args, reason=call.reason)
+        if outcome.status == "pending_approval":
+            # SENSITIVE: nothing was done. The task waits for the Chairman; what the reply asked
+            # for after this call is kept with the request and runs after an approval.
+            request = db.get(Approval, outcome.approval_id)
+            assert request is not None
+            request.continuation = [
+                {"tool": later.tool, "args": later.args, "reason": later.reason} for later in calls[index + 1 :]
+            ]
+            move_task(db, task, WAITING_APPROVAL, output=f"{output}\n\n[Approval] {outcome.summary}")
+            settle_agent(db, agent.id)
+            db.commit()
+            return
         if not outcome.ok:
             prefix = "Tool call refused. " if outcome.status == "denied" else ""
             _fail(db, task, f"{prefix}{outcome.summary}", output=output)
             return
         output = f"{output}\n\n{_tool_line(outcome.tool_name, outcome.summary)}"
 
-    open_children = db.execute(
-        select(Task.id).where(Task.parent_task_id == task.id, Task.status.in_(ACTIVE)).limit(1)
-    ).first()
-    if open_children:  # it created child tasks: keep RUNNING, _finish_parent completes it later
+    children = db.execute(select(Task.status).where(Task.parent_task_id == task.id)).scalars().all()
+    if children:  # it created child tasks: its own part is done, the children decide the rest
         db.execute(
             update(Task)
             .where(Task.id == task.id, Task.status == RUNNING)
             .values(output=output, updated_at=utcnow())
             .execution_options(synchronize_session=False)
         )
-        settle_agent(db, agent.id)
-        db.commit()
+        if any(status in ACTIVE for status in children):  # keep RUNNING, _finish_parent completes it later
+            settle_agent(db, agent.id)
+            db.commit()
+        else:  # (they finished while this task was waiting for an approval)
+            db.refresh(task)
+            _finish_parent(db, task)
         return
     # A cancel may have arrived while the provider was working: then the task stays CANCELLED.
     if move_task(db, task, SUCCEEDED, output=output, error=None):
-        _report_to_parent(db, task)
+        report_to_parent(db, task)
     settle_agent(db, agent.id)
     db.commit()
 
@@ -261,7 +302,7 @@ def _work(db: Session, task: Task) -> None:
             audit.record(
                 db, "agent.work_denied", agent=agent, task_id=task.id, decision="denied", summary=reason
             )
-            _report_to_parent(db, task)
+            report_to_parent(db, task)
         settle_agent(db, task.assigned_agent_id)
         db.commit()
         return
@@ -295,7 +336,37 @@ def _work(db: Session, task: Task) -> None:
     _run_tool_calls(db, task, agent, reply.text, reply.tool_calls)
 
 
+def _resume(db: Session, task: Task) -> None:
+    """The Chairman approved: carry out the approved call, then go on with the rest of the reply."""
+    request = db.execute(
+        select(Approval)
+        .where(Approval.task_id == task.id, Approval.status == approvals.APPROVED, Approval.executed_at.is_(None))
+        .order_by(Approval.id)
+        .limit(1)
+    ).scalar_one()
+    agent = db.get(Agent, request.agent_id)
+    assert agent is not None
+    # The agent is checked again NOW: it may have been paused, or lost the tool, since it asked.
+    outcome = call_tool(db, agent, task, request.tool_key, request.args, reason=request.reason, approval=request)
+    if not outcome.ok:
+        request.executed_at = utcnow()  # used up: it is not tried again
+        request.result = f"Not carried out. {outcome.summary}"
+        _fail(db, task, f"The approved action was not carried out. {outcome.summary}")
+        return
+    later = [ToolRequest(tool=item["tool"], args=item.get("args") or {}, reason=item.get("reason", "")) for item in request.continuation]
+    _run_tool_calls(db, task, agent, f"{task.output or ''}\n\n{_tool_line(outcome.tool_name, outcome.summary)}", later)
+
+
 def _next_step(db: Session) -> tuple[str, Task] | None:
+    approved = db.execute(
+        select(Task)
+        .join(Approval, Approval.task_id == Task.id)
+        .where(Task.status == RUNNING, Approval.status == approvals.APPROVED, Approval.executed_at.is_(None))
+        .order_by(Task.id)
+        .limit(1)
+    ).scalar_one_or_none()
+    if approved is not None:
+        return "resume", approved
     child = aliased(Task)
     finished_parent = db.execute(
         select(Task)
@@ -329,7 +400,7 @@ def run_once(session_factory: sessionmaker[Session] | None = None) -> bool:
         kind, task = step
         task_id = task.id
         try:
-            {"finish": _finish_parent, "route": _route, "work": _work}[kind](db, task)
+            {"resume": _resume, "finish": _finish_parent, "route": _route, "work": _work}[kind](db, task)
         except Exception as exc:  # noqa: BLE001  (one broken task must not block the queue forever)
             db.rollback()
             log.exception("task %s: step '%s' failed", task_id, kind)

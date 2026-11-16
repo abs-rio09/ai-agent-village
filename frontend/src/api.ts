@@ -305,6 +305,8 @@ export interface Task {
   output: string | null;
   status: TaskStatus;
   child_count: number;
+  /** An open approval request of this task or of a task below it; null = nothing waits for the Chairman. */
+  pending_approval_id?: number | null;
   created_at: string;
   started_at: string | null;
   completed_at: string | null;
@@ -338,6 +340,68 @@ export interface TaskDetail extends Task {
   children: Task[];
   /** Messages of this task and of every task below it, oldest first. */
   messages: AgentMessage[];
+}
+
+// ---- approvals + audit log (M4) ----
+
+export type ApprovalStatus = "PENDING" | "APPROVED" | "REJECTED" | "CANCELLED";
+
+/** A request of an agent to use a SENSITIVE tool (docs/SPEC.md §8F). */
+export interface Approval {
+  id: number;
+  status: ApprovalStatus;
+  agent: AgentRef | null;
+  action: string;
+  reason: string;
+  tool_key: string;
+  tool_name: string;
+  expected_changes: string;
+  risk_info: string;
+  risk: string;
+  args: Record<string, unknown>;
+  task_id: number;
+  task_title: string;
+  task_status: TaskStatus | "";
+  created_at: string;
+  decided_at: string | null;
+  /** "chairman:<username>", or "system" when the task ended before a decision. */
+  decided_by: string | null;
+  decision_note: string;
+  executed_at: string | null;
+  /** What happened after an approval. */
+  result: string | null;
+}
+
+export interface AuditEntry {
+  id: number;
+  created_at: string;
+  /** "chairman:<username>", "agent:<id>", "system" or "unknown user". */
+  actor: string;
+  action: string;
+  agent_id: number | null;
+  agent_name: string | null;
+  task_id: number | null;
+  tool_key: string | null;
+  decision: string | null;
+  summary: string;
+  details: Record<string, unknown>;
+}
+
+export interface AuditPage {
+  items: AuditEntry[];
+  total: number;
+  limit: number;
+  offset: number;
+  /** Every action that occurs in the log (for the filter). */
+  actions: string[];
+}
+
+export interface AuditFilter {
+  action?: string | null;
+  agent_id?: number | null;
+  task_id?: number | null;
+  limit?: number;
+  offset?: number;
 }
 
 function query(params: Record<string, string | number | boolean | null | undefined>): string {
@@ -499,6 +563,15 @@ export const api = {
   createTask: (input: { title: string; description: string; priority: TaskPriority }) =>
     request<Task>("POST", "/api/tasks", input),
   cancelTask: (id: number) => request<TaskDetail>("POST", `/api/tasks/${id}/cancel`),
+
+  // tools, approvals, audit log
+  tools: () => request<CatalogItem[]>("GET", "/api/tools"),
+  approvals: (status?: ApprovalStatus | null) => request<Approval[]>("GET", `/api/approvals${query({ status })}`),
+  approval: (id: number) => request<Approval>("GET", `/api/approvals/${id}`),
+  pendingApprovalCount: () => request<{ pending: number }>("GET", "/api/approvals/pending-count"),
+  decideApproval: (id: number, decision: "approve" | "reject", note: string) =>
+    request<Approval>("POST", `/api/approvals/${id}/${decision}`, { note }),
+  audit: (filter: AuditFilter = {}) => request<AuditPage>("GET", `/api/audit${query({ ...filter })}`),
 };
 
 /** A message fit for the user from anything a failed call can throw. */

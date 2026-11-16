@@ -125,7 +125,7 @@ export function AgentAvatar({ avatarKey, size = 48 }: { avatarKey: string; size?
 
 // ---------------------------------------------------------------- badges
 
-function Badge({ tone, children, testId }: { tone: "good" | "warn" | "bad" | "info" | "muted"; children: ReactNode; testId?: string }) {
+export function Badge({ tone, children, testId }: { tone: "good" | "warn" | "bad" | "info" | "muted"; children: ReactNode; testId?: string }) {
   return (
     <span
       data-testid={testId}

@@ -4,6 +4,9 @@ import type {
   Agent,
   AgentOptions,
   AgentTemplate,
+  Approval,
+  AuditEntry,
+  AuditPage,
   Health,
   OrgTree,
   OverviewStats,
@@ -364,3 +367,59 @@ export const DONE_TASK: TaskDetail = {
     },
   ],
 };
+
+// ---- M4: approvals + audit log ----
+
+export function makeApproval(overrides: Partial<Approval> = {}): Approval {
+  return {
+    id: 7,
+    status: "PENDING",
+    agent: { id: 3, display_name: "Sumi", role: "Customer Support Agent", avatar_key: "support", is_central_manager: false },
+    action: "Send a message to customer: “Your order is ready.”",
+    reason: "The request says: “send message to customer”",
+    tool_key: "message.send_external",
+    tool_name: "Send external message",
+    expected_changes: "Once a connector exists, customer would receive this message. Today nothing leaves this PC: an approval is only recorded.",
+    risk_info: "External message. It cannot be taken back once sent.",
+    risk: "SENSITIVE",
+    args: { recipient: "customer", channel: "message", body: "Your order is ready." },
+    task_id: 12,
+    task_title: "send message to customer",
+    task_status: "WAITING_APPROVAL",
+    created_at: "2026-11-16T10:00:00Z",
+    decided_at: null,
+    decided_by: null,
+    decision_note: "",
+    executed_at: null,
+    result: null,
+    ...overrides,
+  };
+}
+
+export function makeAuditEntry(overrides: Partial<AuditEntry> = {}): AuditEntry {
+  return {
+    id: 1,
+    created_at: "2026-11-16T10:00:00Z",
+    actor: "agent:3",
+    action: "tool.denied",
+    agent_id: 3,
+    agent_name: "Sumi",
+    task_id: 12,
+    tool_key: "org.read",
+    decision: "denied",
+    summary: "The tool 'Read the organisation' is not assigned to 'Sumi'.",
+    details: {},
+    ...overrides,
+  };
+}
+
+export function makeAuditPage(items: AuditEntry[], overrides: Partial<AuditPage> = {}): AuditPage {
+  return {
+    items,
+    total: items.length,
+    limit: 50,
+    offset: 0,
+    actions: Array.from(new Set(items.map((item) => item.action))).sort(),
+    ...overrides,
+  };
+}

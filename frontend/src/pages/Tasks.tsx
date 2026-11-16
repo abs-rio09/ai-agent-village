@@ -1,4 +1,4 @@
-import { ArrowLeft, Ban, Send } from "lucide-react";
+import { ArrowLeft, Ban, Send, ShieldAlert } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { Link, useSearchParams } from "react-router";
 
@@ -24,6 +24,22 @@ function Output({ label, text }: { label: string; text: string }) {
         {text}
       </pre>
     </div>
+  );
+}
+
+/** A task (or a task below it) waits for the Chairman: say so and link to the request. */
+function ApprovalNotice({ approvalId }: { approvalId: number }) {
+  return (
+    <p role="status" className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border border-lantern-500/40 bg-lantern-500/10 px-4 py-3 text-sm text-lantern-200">
+      <ShieldAlert size={16} aria-hidden="true" className="shrink-0" />
+      <span className="min-w-0 flex-1">This task is waiting for your approval. Nothing happens until you decide.</span>
+      <Link
+        to={`/approvals?id=${approvalId}`}
+        className="inline-flex min-h-9 items-center rounded-lg border border-lantern-400/60 px-3 font-semibold text-lantern-200 hover:bg-lantern-500/20 mobile:min-h-11"
+      >
+        Open approval request #{approvalId}
+      </Link>
+    </p>
   );
 }
 
@@ -67,9 +83,11 @@ function MessageRow({ message, timezone }: { message: AgentMessage; timezone?: s
   const summary =
     message.type === "delegation"
       ? "Delegated the task"
-      : message.payload.status === "SUCCEEDED"
-        ? "Returned its result"
-        : `Reported ${message.payload.status ?? "a result"}${message.payload.error ? `: ${message.payload.error}` : ""}`;
+      : message.type === "info_request"
+        ? "Asked for information"
+        : message.payload.status === "SUCCEEDED"
+          ? "Returned its result"
+          : `Reported ${message.payload.status ?? "a result"}${message.payload.error ? `: ${message.payload.error}` : ""}`;
   return (
     <li className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 py-2 text-sm">
       <span className="rounded border border-night-600 px-1.5 font-mono text-[10px] uppercase tracking-wider text-mist-400">{message.type}</span>
@@ -125,6 +143,7 @@ function TaskDetailPanel({ task, timezone, onCancel }: DetailProps) {
         </div>
       </div>
       {error && <ErrorBanner>{error}</ErrorBanner>}
+      {task.pending_approval_id != null && <ApprovalNotice approvalId={task.pending_approval_id} />}
 
       <dl className="grid gap-x-8 gap-y-1 text-sm sm:grid-cols-2">
         {[
@@ -182,6 +201,14 @@ function TaskDetailPanel({ task, timezone, onCancel }: DetailProps) {
                     </p>
                   </div>
                   <TaskStatusBadge status={child.status} />
+                  {child.status === "WAITING_APPROVAL" && child.pending_approval_id != null && (
+                    <Link
+                      to={`/approvals?id=${child.pending_approval_id}`}
+                      className="text-xs font-semibold text-lantern-300 underline-offset-4 hover:underline"
+                    >
+                      approval #{child.pending_approval_id}
+                    </Link>
+                  )}
                 </div>
                 {child.error && <p className="mt-2 text-sm text-clay-300">{child.error}</p>}
                 {child.output && (
@@ -394,6 +421,11 @@ export default function Tasks({ timezone, pollMs = POLL_MS }: { timezone?: strin
                   <span className="min-w-0 flex-1 truncate text-sm text-mist-50">
                     #{task.id} {task.title}
                   </span>
+                  {task.pending_approval_id != null && (
+                    <span className="rounded border border-lantern-500/50 px-1.5 font-mono text-[10px] uppercase tracking-wider text-lantern-200">
+                      needs your approval
+                    </span>
+                  )}
                   <span className="text-xs text-mist-400">{task.child_count > 0 ? `${task.child_count} delegated` : "not delegated"}</span>
                   <span className="font-mono text-[11px] text-mist-500">{formatTime(task.created_at, timezone)}</span>
                 </Link>
