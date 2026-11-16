@@ -112,12 +112,12 @@ describe("app shell", () => {
     const nav = await screen.findByRole("navigation", { name: "Village pages" });
     const built = [
       "Upazila Management", "Union Management", "Ward & Office Management", "Agent Management", "Agent Profile", "Task Center",
-      "Approval Center", "Audit Log", "Schedules", "Memory & Knowledge Center",
+      "Approval Center", "Audit Log", "Schedules", "Memory & Knowledge Center", "Interactive Village Map",
     ];
     for (const label of built) {
       expect(within(nav).getByRole("link", { name: label })).toBeInTheDocument(); // no "M<n>" badge in the name
     }
-    expect(BUILT_MILESTONE).toBe(4);
+    expect(BUILT_MILESTONE).toBe(5);
     // not part of M3 or M4: still honest placeholders
     expect(within(nav).getByRole("link", { name: /^Agent Chat\s*M9$/ })).toBeInTheDocument();
     expect(within(nav).getByRole("link", { name: /^AI Model Settings\s*M9$/ })).toBeInTheDocument();

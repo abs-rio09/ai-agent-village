@@ -25,7 +25,7 @@ export function useIsMobile(): boolean {
  * Call `callback` now and then every `intervalMs` — but only while the page is visible. A hidden
  * tab (or a phone in the pocket) asks the server nothing; coming back asks at once.
  */
-export function usePolling(callback: () => void | Promise<void>, intervalMs: number): void {
+export function usePolling(callback: () => void | Promise<void>, intervalMs: number, restartKey: string | number = ""): void {
   const latest = useRef(callback);
   latest.current = callback;
   useEffect(() => {
@@ -49,5 +49,5 @@ export function usePolling(callback: () => void | Promise<void>, intervalMs: num
       stop();
       document.removeEventListener("visibilitychange", onVisibility);
     };
-  }, [intervalMs]);
+  }, [intervalMs, restartKey]); // a new key (for example another map level) asks at once
 }

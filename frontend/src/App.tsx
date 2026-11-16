@@ -19,6 +19,7 @@ import SetupWizard from "./pages/SetupWizard";
 import Tasks from "./pages/Tasks";
 import Unions from "./pages/Unions";
 import Upazilas from "./pages/Upazilas";
+import VillageMap from "./pages/VillageMap";
 import Wards from "./pages/Wards";
 import { useSession } from "./session";
 
@@ -69,6 +70,7 @@ export default function App() {
       />
       <Route element={authed ? <AppShell user={authed.user} village={authed.village} /> : <Navigate to={gate} replace />}>
         <Route index element={authed ? <Overview village={authed.village} /> : null} />
+        <Route path="/map" element={<VillageMap />} />
         <Route path="/upazilas" element={<Upazilas />} />
         <Route path="/unions" element={<Unions />} />
         <Route path="/wards" element={<Wards />} />

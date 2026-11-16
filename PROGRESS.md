@@ -31,8 +31,11 @@ accepted by the owner**. Checked with the test suites, on a scratch server (port
 headless browser; the live village was not started, migrated or rebuilt. See "How to verify M4 on
 the live village" — the Demo approval phrase is **`send message to customer`**.
 
-Milestone **M5 — Dashboard & Map**: Parts A (real overview numbers, recent activity) and B (robot
-avatars, agent activity) are **built and committed**. Part C (village map) follows.
+Milestone **M5 — Dashboard & Map**: Parts A (real overview numbers, recent activity), B (robot
+avatars, agent activity) and C (interactive village map + list view) are **built and committed, not
+yet accepted by the owner**. Checked with the test suites, on a scratch server (port 8013) and in a
+headless browser; the live village (running on port 8000 the whole time) was not touched. No
+migration: the database stays at 0009. See "How to verify M5 on the live village".
 
 ## Done
 ### M1 Part A — scaffold, backend core, `./village` CLI
@@ -849,7 +852,7 @@ avatars, agent activity) are **built and committed**. Part C (village map) follo
   wizard's template list, the Task Center's child tasks (working / waiting from the task's own
   status) and the Approval Center's cards. The old avatar (15 near-identical variants in
   `components/agents.tsx`) was removed.
-- Tests: pytest **410 passed, 1 skipped** — 13 new in `tests/test_m5_agent_activity.py` (the rule
+- Tests: pytest **411 passed, 1 skipped** — 13 new in `tests/test_m5_agent_activity.py` (the rule
   for each case, activity following real tasks, waiting for approval, offline, health checks,
   `template_key` on references, the robot table against the catalogue). Vitest **165 passed** —
   18 new in `robots.test.tsx` (all 15 templates mapped, each role and each status rendered with
@@ -861,6 +864,99 @@ avatars, agent activity) are **built and committed**. Part C (village map) follo
   second, so only the Central Manager (whose request stays open) was seen working; a screen
   reader; the robots with reduced motion switched on in the browser (the rule is global CSS).
 - Known: a Demo agent is almost never seen "working". That is honest — it is not working.
+
+### M5 Part C — interactive village map and list navigation (2026-11-17)
+- `GET /api/map?level=village|upazila|union|ward&id=` (`backend/app/api/village_map.py`), one
+  level per request: the buildings of that level (id, type, name, child count, how many agents
+  work in or below it, their open tasks, the first four agents to draw, and where a click leads),
+  the breadcrumb, the parent, and at ward level the Office with EVERY agent in it. 404 for a
+  place that does not exist, 422 for a level without its id. A constant number of queries (at
+  most 8–9), whatever the size of the village. "Active tasks" = tasks of those agents that are
+  not finished (QUEUED, ASSIGNED, RUNNING, WAITING_APPROVAL), without health checks; a request
+  nobody has been given yet belongs to no building.
+- **Interactive Village Map** (`/map`, `pages/VillageMap.tsx`, `components/map/`): an SVG town.
+  Village level: Central Administration on a plaza, one building per Upazila around it, roads to
+  each, gardens in the gaps, a sign under every building. Click an Upazila → its Unions along
+  streets; a Union → its Wards (houses); a Ward → its Office with one desk per agent; a robot →
+  the agent's profile. Robots stand in front of their building (three at most, then "+n") with
+  their activity dot; a building with open tasks has lit windows and a number badge.
+  Breadcrumb + Back. The level is in the address (`/map?level=union&id=11`).
+- **Layout is computed from counts** (`components/map/layout.ts`), never from names: a ring for
+  the village (an inner ring from 9 Upazilas on; on a phone two columns under the plaza), rows
+  for Unions, Wards and desks (nine Wards are a 3 × 3 block, two columns on a phone). The colour
+  of an Upazila building comes from its position in the village's order.
+- **List view** on the same page (`&view=list`): the same buildings, numbers and agents as plain
+  buttons and links; drilling down keeps the list, switching back shows the map of the same place.
+  In the map itself every building and robot is also focusable and opens with Enter or Space.
+- Polls every 10 s through `usePolling` (no request while the tab is hidden; a new level asks at
+  once). A deleted place shows "This place is not on the map" with a way back.
+- `nav.ts`: `BUILT_MILESTONE = 5`; the map page is no longer "Coming in M5".
+- Tests: pytest **418 passed, 1 skipped** — 7 new in `tests/test_m5_map.py` (empty village, one
+  building per Upazila, a full Study Upazila down to a Ward with six agents, active tasks and
+  activity per building, 404/422 and empty levels, query count, 401). Vitest **180 passed** — 15
+  new in `map.test.tsx` (layout for 0–12 buildings and 0–20 grid items on both shapes, village
+  scene, click path Village → Upazila → Union → Ward → agent, breadcrumb and Back, keyboard,
+  list view with the same items and address, empty village, phone-shaped map, 404, polling and
+  hidden tab).
+
+### M5 final check (run by the assistant, 2026-11-17)
+- The live village was running on port 8000 throughout and was not touched; `frontend/dist` was
+  not rebuilt (`tsc --noEmit`, `vite build`, `build-sw` into a scratch folder). **M5 has no
+  migration** — nothing to run up or down; head is still 0009.
+- Bundle: 483 kB JavaScript (140 kB gzip), 49 kB more than after M4; no new dependency.
+- Scratch server (port 8013, the M4 scratch database with real tasks) in headless Chrome:
+  - **Overview**: the ten numbers equal `/api/stats/overview`; 20 feed lines with links.
+  - **Robots**: six different robots among the 15 templates; "Central Manager … working on task
+    #27", "Mina … idle", "Sumi … waiting for your approval (task #28)" from real tasks.
+  - **Map**: Village (7 buildings, task badges on Central Administration and Business Upazila) →
+    Business Upazila (5 Unions) → Customer & Sales (9 Wards) → Ward 1 (its Office, Sumi at her
+    desk, "waiting · task #28") → Enter on the robot → her profile. Back and the breadcrumb led
+    up again. List view with the keyboard only: 7 places, Enter on Study Upazila → its Unions.
+  - Every building, sign and robot lies inside the drawing at 1280 px and at 390 px; no sideways
+    scroll at 390 px (village, a 9-Ward Union).
+  - With `prefers-reduced-motion: reduce` emulated: **0** running animations (2 without it).
+  - In 12 s the map asked `/api/map` twice (once on load, once after 10 s).
+  - No request left 127.0.0.1, no `<img>` or `<image>` on the page, no console error.
+  - The pending-approval count on the phone's "More" button was seen with one request waiting.
+- `./village doctor` against that server: no failures.
+- **Not tested:** a real phone or touch screen; a screen reader (labels and roles are checked in
+  Vitest only); a village with more than 6 Upazilas, or an Office with many agents, in a browser
+  (layout tests only); an ordinary agent "working" on the map (Demo tasks finish in under a
+  second); the hidden-tab pause in a real browser (Vitest only); the live village.
+- Known limits: the map draws at most three robots per building (the count says the rest, and
+  the Ward level shows everyone); long names are cut on the signs (full name in the label and the
+  list view); a queued request without an agent is on no building; Central Administration has no
+  level of its own — its agents stand in front of it.
+
+## How to verify M5 on the live village
+`./village stop && ./village setup && ./village start` (no migration this time; setup rebuilds
+the frontend). Log in.
+
+1. **Overview** — ten numbers in three groups (Structure, Agents, Work) and a Recent Activity
+   list. Note "Agents" and "Completed tasks".
+2. Agent Management → create a new agent → back on the Overview (wait up to 10 s, no reload):
+   "Agents" is one higher and the feed's first line says who created it.
+3. Task Center → send `help me prepare for my exam` → Overview: "Completed tasks" goes up by 2
+   (your request and the delegated task), and the feed shows "Request #n … was sent", "… was
+   delegated to …", "… succeeded". Click a feed line: it opens that task.
+4. Send `send message to customer` (to an agent that may send messages, see M4 step 4) →
+   Overview: "Pending approvals" 1 and "Running tasks" 1.
+5. **Robots** — Agent Management: every agent is a robot dressed for its role. The agent from
+   step 4 has an amber ring, the badge "waiting" and the task number; the Central Manager is
+   "working". Pause any agent → its robot turns grey, "offline". Activate it again.
+6. Agent Management → New agent: the 15 templates show six kinds of robot; the Doctor / General
+   Wellness Assistant wears a coat and (hover it) says "assistant only".
+7. **Map** — Interactive Village Map: Central Administration in the middle, one building per
+   Upazila around it, a blue number on buildings with open tasks, robots in front.
+8. Click an Upazila → its Unions. Click a Union → its Wards. Click a Ward → its Office with the
+   agents at their desks. Click a robot → the agent's profile.
+9. Go back to the map: **Back** goes one level up; the breadcrumb jumps to any level above.
+10. **List view** (button top right) → the same places as a list. Use only Tab and Enter to go
+    down to a Ward and open an agent. **Map view** shows the same place as a map.
+11. Narrow the window to phone width (or use the phone): the map becomes tall, nothing scrolls
+    sideways, and the list view still works.
+12. Approve or reject the request from step 4 → within 10 s the map's task number, the robot's
+    ring and the Overview follow without a reload.
 
 ## How to verify M4 on the live village
 Update first (new dependency APScheduler, migrations 0007–0009, new frontend build):
@@ -968,7 +1064,7 @@ frontend), log in, then:
 8. Overview again: the four counts match.
 
 ## In progress
-- M5: Parts A and B committed; Part C (village map) is next.
+- Nothing. M5 Parts A, B and C are committed. The next milestone has not been started.
 
 ## Broken & known issues
 - `VILLAGE_SECRET_KEY` is required and generated, but nothing uses it yet (session tokens are
@@ -1043,15 +1139,13 @@ frontend), log in, then:
   harmless today.
 
 ## Last session
-- DEV-M4 Parts A, B and C: three commits on `main` ("M4 Part A: tool registry, permission checks,
-  audit log", "M4 Part B: approvals and audit log pages", "M4 Part C: memory scopes and
-  scheduler"), nothing pushed. Tests pass (pytest 391 + 1 skip, Vitest 142). The brief asked for
-  all three parts in one session, so the "one part per session" rule of CLAUDE.md was not
-  followed this time, on the owner's instruction.
-- The live village was not started, migrated or rebuilt. To use M4:
-  `./village stop && ./village setup && ./village start` (installs APScheduler, migrates 0006 →
-  0009, rebuilds the frontend).
-- Waiting for: the owner's check of M4 (see "How to verify M4 on the live village"), and still
-  the owner's checks of APP-01, M2 and M3; the milestone for Agent Chat and Communication History
-  (parked on M9); the ward names for the Business/Career/Research/Project/Personal templates; the
-  Node 20 vs 22 decision; the first CI run on GitHub.
+- DEV-M5 Parts A, B and C: three commits on `main` ("M5 Part A: real overview stats and recent
+  activity", "M5 Part B: robot avatars and agent activity status", "M5 Part C: interactive village
+  map and list navigation"), nothing pushed. Tests pass (pytest 418 + 1 skip, Vitest 180). No
+  migration, no new dependency.
+- The live village (running on port 8000) was not touched. To use M5:
+  `./village stop && ./village setup && ./village start` (rebuilds the frontend).
+- Waiting for: the owner's check of M5 (see "How to verify M5 on the live village"); the
+  milestone for Agent Chat and Communication History (parked on M9); the ward names for the
+  Business/Career/Research/Project/Personal templates; the Node 20 vs 22 decision; the first CI
+  run on GitHub.

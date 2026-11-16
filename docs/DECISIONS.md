@@ -81,3 +81,23 @@ The later sections record choices made while building; they can be changed, but 
   check and the daily report (counted from the database, written by no model).
 - **Never rebuild the `task` table in a migration.** SQLite's batch mode drops the old table, and
   with foreign keys on that cascades to messages and approvals.
+
+## Dashboard and map (M5)
+
+- **Every number is an SQL count taken when the page asks.** Nothing is cached, estimated or
+  hard-coded. Task numbers count every task row except the scheduler's health checks.
+- **The activity feed is derived, not stored**: it is built per request from the audit log and
+  the tasks' timestamps. Its links are paths inside the app.
+- **An agent's activity is derived, not stored**: offline (paused/disabled) → waiting (a task in
+  WAITING_APPROVAL) → working (a task RUNNING) → idle. "Waiting" wins over "working".
+- **One table maps the 15 agent templates to a robot** (`frontend/src/components/robots/roles.ts`);
+  a backend test fails when a template is missing there. The wellness robot is always labelled
+  "assistant only".
+- **The map shows ONE level at a time** (Village → Upazila → Union → Ward), never all offices at
+  once, and `GET /api/map` returns one level per request.
+- **Map positions are computed from counts**, never from names (`components/map/layout.ts`).
+- **Map and avatars are hand-made SVG.** No images, no CDN, no map, game or 3D library.
+- **The level is in the address** (`/map?level=&id=`, `&view=list`), shared by the map and its
+  list view, so Back, reload and links work.
+- **Refresh is polling** (10 s) through one hook that stops while the tab is hidden. No WebSockets.
+- **Animations are CSS only**, so the global `prefers-reduced-motion` rule stops all of them.

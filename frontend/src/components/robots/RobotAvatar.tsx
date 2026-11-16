@@ -163,8 +163,39 @@ export function robotLabel({ name, title, status, taskId, role }: Pick<RobotAvat
   return parts.join(", ");
 }
 
-export function RobotAvatar({ role, status, size = 48, name, title, taskId, className }: RobotAvatarProps) {
+/** The robot itself, as SVG shapes for a 64 × 64 box — for use inside another <svg> (the map). */
+export function RobotFigure({ role }: { role: RobotRole }) {
   const outfit = OUTFITS[role];
+  return (
+    <>
+      {/* antenna */}
+      <path d="M32 10V6" stroke={outfit.accent} strokeWidth="1.6" strokeLinecap="round" />
+      <circle cx="32" cy="5" r="2" fill={outfit.accent} />
+      {/* head */}
+      <rect x="17" y="16" width="3.4" height="6.5" rx="1.2" fill="var(--color-night-600)" />
+      <rect x="43.6" y="16" width="3.4" height="6.5" rx="1.2" fill="var(--color-night-600)" />
+      <rect x="20" y="10" width="24" height="18" rx="7" fill="var(--color-night-700)" stroke={outfit.accent} strokeWidth="1.6" />
+      <circle cx="27" cy="19" r="2.3" fill="var(--color-river-300)" />
+      <circle cx="37" cy="19" r="2.3" fill="var(--color-river-300)" />
+      <path d="M29 24h6" stroke="var(--color-mist-400)" strokeWidth="1.2" strokeLinecap="round" />
+      {/* neck, arms, legs */}
+      <rect x="29" y="28" width="6" height="3.5" fill="var(--color-night-600)" />
+      <rect x="13" y="33" width="5.2" height="15" rx="2.6" fill={outfit.body} opacity="0.85" />
+      <rect x="45.8" y="33" width="5.2" height="15" rx="2.6" fill={outfit.body} opacity="0.85" />
+      <circle cx="15.6" cy="50" r="2.6" fill="var(--color-night-600)" stroke={outfit.accent} strokeWidth="0.8" />
+      <circle cx="48.4" cy="50" r="2.6" fill="var(--color-night-600)" stroke={outfit.accent} strokeWidth="0.8" />
+      <rect x="23" y="50" width="6.5" height="9" rx="2" fill="var(--color-night-600)" />
+      <rect x="34.5" y="50" width="6.5" height="9" rx="2" fill="var(--color-night-600)" />
+      <rect x="21" y="57.5" width="10.5" height="4" rx="2" fill="var(--color-night-500)" />
+      <rect x="32.5" y="57.5" width="10.5" height="4" rx="2" fill="var(--color-night-500)" />
+      {/* body + outfit */}
+      <rect x="19" y="31" width="26" height="20.5" rx="6" fill={outfit.body} />
+      {outfit.extras}
+    </>
+  );
+}
+
+export function RobotAvatar({ role, status, size = 48, name, title, taskId, className }: RobotAvatarProps) {
   const label = robotLabel({ name, title, status, taskId, role });
   const announced = Boolean(name || title);
   const dot = Math.max(8, Math.round(size * 0.2));
@@ -180,29 +211,7 @@ export function RobotAvatar({ role, status, size = 48, name, title, taskId, clas
       style={{ width: size, height: size }}
     >
       <svg viewBox="0 0 64 64" width="100%" height="100%" aria-hidden="true" className={cx("block", status === "offline" && "opacity-45 grayscale")}>
-        {/* antenna */}
-        <path d="M32 10V6" stroke={outfit.accent} strokeWidth="1.6" strokeLinecap="round" />
-        <circle cx="32" cy="5" r="2" fill={outfit.accent} />
-        {/* head */}
-        <rect x="17" y="16" width="3.4" height="6.5" rx="1.2" fill="var(--color-night-600)" />
-        <rect x="43.6" y="16" width="3.4" height="6.5" rx="1.2" fill="var(--color-night-600)" />
-        <rect x="20" y="10" width="24" height="18" rx="7" fill="var(--color-night-700)" stroke={outfit.accent} strokeWidth="1.6" />
-        <circle cx="27" cy="19" r="2.3" fill="var(--color-river-300)" />
-        <circle cx="37" cy="19" r="2.3" fill="var(--color-river-300)" />
-        <path d="M29 24h6" stroke="var(--color-mist-400)" strokeWidth="1.2" strokeLinecap="round" />
-        {/* neck, arms, legs */}
-        <rect x="29" y="28" width="6" height="3.5" fill="var(--color-night-600)" />
-        <rect x="13" y="33" width="5.2" height="15" rx="2.6" fill={outfit.body} opacity="0.85" />
-        <rect x="45.8" y="33" width="5.2" height="15" rx="2.6" fill={outfit.body} opacity="0.85" />
-        <circle cx="15.6" cy="50" r="2.6" fill="var(--color-night-600)" stroke={outfit.accent} strokeWidth="0.8" />
-        <circle cx="48.4" cy="50" r="2.6" fill="var(--color-night-600)" stroke={outfit.accent} strokeWidth="0.8" />
-        <rect x="23" y="50" width="6.5" height="9" rx="2" fill="var(--color-night-600)" />
-        <rect x="34.5" y="50" width="6.5" height="9" rx="2" fill="var(--color-night-600)" />
-        <rect x="21" y="57.5" width="10.5" height="4" rx="2" fill="var(--color-night-500)" />
-        <rect x="32.5" y="57.5" width="10.5" height="4" rx="2" fill="var(--color-night-500)" />
-        {/* body + outfit */}
-        <rect x="19" y="31" width="26" height="20.5" rx="6" fill={outfit.body} />
-        {outfit.extras}
+        <RobotFigure role={role} />
       </svg>
       {role === "doctor" && size >= 56 && (
         <span className="absolute inset-x-0 bottom-0 rounded-b-[0.85rem] bg-night-950/85 text-center font-mono text-[7px] uppercase leading-[11px] tracking-wider text-mist-100">

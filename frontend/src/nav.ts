@@ -5,7 +5,7 @@
 // today; every other page renders an honest "Coming in M<n>" placeholder with no data.
 // NOTE: the M5-M9 assignment below is provisional — adjust it here if the build plan differs.
 // M3 built Agent Management, Agent Profile and the Task Center. AI Model Settings is M9 (owner's
-// decision, DEV-M4). M4 built the Approval Center and the Audit Log. Agent Chat and Communication
+// decision, DEV-M4). M4 built the Approval Center and the Audit Log; M5 the Village Map. Agent Chat and Communication
 // History were not part of M3 or M4; they are parked on M9 — an ASSUMPTION, change it here.
 
 import {
@@ -125,7 +125,7 @@ export const NAV_GROUPS: NavGroup[] = [
 export const ALL_PAGES: PageDef[] = NAV_GROUPS.flatMap((group) => group.pages);
 
 /** The last milestone whose pages are really built. */
-export const BUILT_MILESTONE = 4;
+export const BUILT_MILESTONE = 5;
 
 export function isBuilt(page: PageDef): boolean {
   return page.milestone <= BUILT_MILESTONE || page.builtEarly === true;

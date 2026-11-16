@@ -502,6 +502,56 @@ export interface ScheduleInput {
   daily_time?: string;
 }
 
+// ---- village map (M5) ----
+
+export type MapLevel = "village" | "upazila" | "union" | "ward";
+
+export interface MapAgent {
+  id: number;
+  name: string;
+  role: string;
+  template_key: string | null;
+  activity: RuntimeState;
+  current_task_id: number | null;
+}
+
+export interface MapTarget {
+  level: MapLevel;
+  id: number | null;
+}
+
+export interface MapBuilding {
+  id: number;
+  type: "central" | "upazila" | "union" | "ward";
+  name: string;
+  detail: string;
+  child_count: number;
+  /** "Unions", "Wards" or "Agents". */
+  child_label: string;
+  /** Agents working in this building or below it. */
+  agent_count: number;
+  active_tasks: number;
+  /** The first few of them, to draw. */
+  agents: MapAgent[];
+  /** Where a click leads; null when there is nothing below. */
+  target: MapTarget | null;
+}
+
+/** One level of the village (GET /api/map). */
+export interface MapView {
+  level: MapLevel;
+  id: number | null;
+  name: string;
+  breadcrumb: Array<MapTarget & { label: string }>;
+  parent: MapTarget | null;
+  buildings: MapBuilding[];
+  /** Ward level: the Office whose workspaces are shown, and everyone working in it. */
+  office_name: string | null;
+  agents: MapAgent[];
+  agent_count: number;
+  active_tasks: number;
+}
+
 function query(params: Record<string, string | number | boolean | null | undefined>): string {
   const parts = Object.entries(params)
     .filter(([, value]) => value !== null && value !== undefined && value !== "")
@@ -609,6 +659,7 @@ export const api = {
   // organization
   orgTree: () => request<OrgTree>("GET", "/api/org/tree"),
   statsOverview: () => request<OverviewStats>("GET", "/api/stats/overview"),
+  villageMap: (level: MapLevel = "village", id: number | null = null) => request<MapView>("GET", `/api/map${query({ level, id })}`),
   recentActivity: (limit = 20) => request<ActivityEvent[]>("GET", `/api/activity/recent?limit=${limit}`),
   createUpazila: (input: UpazilaInput) => request<unknown>("POST", "/api/upazilas", input),
   updateUpazila: (id: number, patch: Partial<UpazilaInput>) => request<unknown>("PATCH", `/api/upazilas/${id}`, patch),

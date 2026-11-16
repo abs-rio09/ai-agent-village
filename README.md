@@ -30,13 +30,13 @@ Built one milestone at a time. Each milestone is tested before the next one star
 | **M2** | Organization: Upazila / Union / Ward / Office, templates, standard structure, tree view | ✅ Done, tested (owner sign-off on the live install pending) |
 | **M3** | Agents and tasks: agent registry and templates, Demo provider, Central Manager routing, task queue, delegation | ✅ Built, tested (owner sign-off on the live install pending) |
 | **M4** | Control: tool registry, enforced permissions, approvals, audit log, memory scopes, scheduler | ✅ Built, tested (owner sign-off on the live install pending) |
-| **M5** | Interactive village map | ⏳ Planned |
+| **M5** | Dashboard & map: real overview numbers, recent activity, robot avatars, interactive village map | ✅ Built, tested (owner sign-off on the live install pending) |
 | **M6** | Knowledge and documents (the three memory scopes were built in M4) | ⏳ Planned |
 | **M7** | Commerce and integrations | ⏳ Planned |
 | **M8** | Reports, settings, backup and restore, system health | ⏳ Planned |
 | **M9** | Real AI providers and their settings, agent chat, communication history, release hardening | ⏳ Planned |
 
-✅ done · 🚧 in progress · ⏳ planned. Nothing is in progress right now. The split of M5–M9 is
+✅ done · 🚧 in progress · ⏳ planned. Nothing is in progress right now. The split of M6–M9 is
 provisional and may change. [`PROGRESS.md`](PROGRESS.md) is the detailed, honest log, including
 known issues.
 
@@ -98,6 +98,23 @@ known issues.
 - **Schedules**: APScheduler inside the same process. A schedule only creates a task — every N
   minutes or once a day — and the normal task queue runs it. One run creates at most one task,
   also across restarts. Built in: an agent health check and a daily report counted from the database.
+
+**Dashboard and map (M5)**
+
+- **Village Overview**: ten live numbers — Upazilas, Unions, Wards, Offices, agents, active agents,
+  running, completed and failed tasks, pending approvals — each an SQL count, each a link, plus a
+  Recent Activity feed built from the audit log and the tasks. It refreshes every 10 seconds and
+  stops asking while the tab is hidden.
+- **Robot avatars**: every agent is a small SVG robot dressed for its role (manager, helper,
+  wellness assistant, technician, researcher, sales) with a ring and a dot for what it is doing —
+  working, idle, waiting for your approval, offline — and the number of its current task. The
+  activity is computed by the server from the agent's tasks, not stored.
+- **Interactive Village Map**: the village as a small town, one level at a time. Central
+  Administration on the plaza with one building per Upazila around it; click through Upazila →
+  Union → Ward → the Office with its agents at their desks → an agent's profile. Buildings show
+  their open tasks; the layout is computed from the counts, so it works for any village. A
+  **List view** of the same data, at the same address, is the keyboard and screen-reader way in.
+  Hand-drawn SVG only: no images, no map library.
 
 > **Not there yet:** no AI model is connected. Routing is keyword matching, replies are Demo text,
 > and the Ollama and Anthropic providers are not implemented or contacted. The four sensitive
@@ -250,8 +267,8 @@ cd frontend && npm test              # frontend (Vitest, runs once)
 cd frontend && npm run build         # type-check + production build
 ```
 
-Current results (M4): **pytest 391 passed, 1 skipped** (the skipped test needs
-`shellcheck`) and **Vitest 142 passed**. Tests never touch the real database or
+Current results (M5): **pytest 418 passed, 1 skipped** (the skipped test needs
+`shellcheck`) and **Vitest 180 passed**. Tests never touch the real database or
 `data/.env`. The GitHub Actions workflow in [`ci.yml`](.github/workflows/ci.yml) runs both suites
 and the build on every push and pull request.
 
@@ -282,7 +299,6 @@ ai-agent-village/
 
 All of this is **planned, not built**. The order and grouping may change.
 
-- **M5**: interactive village map with agent characters; the tree view stays as the accessible alternative.
 - **M6**: local document upload and search, and the document tools for agents.
 - **M7**: products, inventory and orders; Messenger integration in a sandbox mode.
 - **M8**: reports, application settings, backup and restore, system health and logs.
