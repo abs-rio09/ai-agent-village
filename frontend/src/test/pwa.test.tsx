@@ -12,7 +12,7 @@ import { ConnectionIndicator, UpdateToast } from "../components/pwa";
 import { MOBILE_QUERY } from "../hooks";
 import { announceUpdate, resetPwaForTests, type BeforeInstallPromptEvent } from "../pwa";
 import { SessionProvider } from "../session";
-import { DONE_TASK, HEALTH, STATS, USER, VILLAGE, makeTask, mockFetch } from "./helpers";
+import { DONE_TASK, HEALTH, STATS, USER, VILLAGE, makeTask, mockFetch, ACTIVITY_ROUTE } from "./helpers";
 
 function renderApp(path: string) {
   render(
@@ -31,6 +31,7 @@ const AUTHED: Parameters<typeof mockFetch>[0] = {
   "GET /api/village": { body: VILLAGE },
   "GET /api/health": { body: HEALTH },
   "GET /api/stats/overview": { body: STATS },
+  [ACTIVITY_ROUTE]: { body: [] },
 };
 
 /** Pretend the window is `width` px wide: only media queries that match that width are true. */

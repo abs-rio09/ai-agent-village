@@ -11,6 +11,9 @@ export interface Health {
   journal_mode: string | null;
   demo_mode: boolean;
   setup_completed: boolean;
+  /** The in-process scheduler: "running" or "stopped". */
+  scheduler?: string;
+  scheduler_jobs?: number;
 }
 
 export interface SetupStatus {
@@ -159,6 +162,27 @@ export interface OverviewStats {
   /** Every agent, the Central Manager included. */
   agents: number;
   active_agents: number;
+  /** Tasks by status, without the scheduler's health checks. */
+  running_tasks: number;
+  completed_tasks: number;
+  failed_tasks: number;
+  /** Requests of agents that wait for the Chairman's decision. */
+  pending_approvals: number;
+}
+
+/** One line of the dashboard's Recent Activity feed (from the audit log and the tasks). */
+export interface ActivityEvent {
+  id: string;
+  time: string;
+  source: "audit" | "task";
+  action: string;
+  actor: string;
+  agent_id: number | null;
+  task_id: number | null;
+  text: string;
+  /** A path inside the app with the details, or null. */
+  link: string | null;
+  tone: "good" | "bad" | "warn" | "info" | "muted";
 }
 
 export interface UpazilaInput {
@@ -579,6 +603,7 @@ export const api = {
   // organization
   orgTree: () => request<OrgTree>("GET", "/api/org/tree"),
   statsOverview: () => request<OverviewStats>("GET", "/api/stats/overview"),
+  recentActivity: (limit = 20) => request<ActivityEvent[]>("GET", `/api/activity/recent?limit=${limit}`),
   createUpazila: (input: UpazilaInput) => request<unknown>("POST", "/api/upazilas", input),
   updateUpazila: (id: number, patch: Partial<UpazilaInput>) => request<unknown>("PATCH", `/api/upazilas/${id}`, patch),
   deleteUpazila: (id: number, confirmName: string) =>

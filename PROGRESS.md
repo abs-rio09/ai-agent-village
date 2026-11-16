@@ -31,6 +31,9 @@ accepted by the owner**. Checked with the test suites, on a scratch server (port
 headless browser; the live village was not started, migrated or rebuilt. See "How to verify M4 on
 the live village" — the Demo approval phrase is **`send message to customer`**.
 
+Milestone **M5 — Dashboard & Map**: Part A (real overview numbers, recent activity) is **built and
+committed**. Parts B (robot avatars) and C (village map) follow.
+
 ## Done
 ### M1 Part A — scaffold, backend core, `./village` CLI
 - Project layout, `.gitignore`, `backend/requirements.txt` (installs on Python 3.14.4;
@@ -784,6 +787,42 @@ the live village" — the Demo approval phrase is **`send message to customer`**
   timezone other than Asia/Dhaka; the scheduler over days; `shellcheck` on the changed `village`
   script (not installed; `bash -n` passes); Ollama and Anthropic (do not exist).
 
+### M5 Part A — real overview numbers and recent activity (2026-11-16)
+- `GET /api/stats/overview` now also returns `running_tasks`, `completed_tasks`, `failed_tasks`
+  and `pending_approvals` — together with the seven older numbers that is every count of SPEC
+  §13. All eleven values are SQL counts in ONE statement.
+  **What "task" means here:** every task row — requests of the Chairman, delegated and scheduled
+  tasks — so one request that is delegated and answered adds 2 to "Completed tasks". The
+  scheduler's health checks (one every 10 minutes) are left out; they are housekeeping.
+  "Running" is status RUNNING only (a request that waits for an approval counts as running, its
+  waiting child task does not).
+- `GET /api/activity/recent?limit=20` (1–100): built at request time from the audit log and from
+  the tasks' own timestamps (created, succeeded, failed, cancelled). Nothing is stored for it and
+  nothing is invented. Each event has time, actor, text, tone and a link INSIDE the app
+  (`/tasks?id=`, `/approvals?id=`, `/agents/profile?id=`, …). Left out on purpose: health-check
+  tasks, and the Central Manager's `task.create_child` tool line (the delegated task itself is
+  shown instead). Task titles pass through the audit log's cleaning, so a key-like string typed
+  into a request is masked. Session required.
+- **Village Overview** rebuilt: ten stat tiles in three groups (Structure / Agents / Work), each
+  a link to its page, coloured only when above zero; a Recent Activity feed with links; System
+  health (now with the scheduler's state) and a Village card; a "Your village is still empty"
+  panel with the three first steps while there is no Upazila; an empty-feed text. It asks again
+  every 10 s through a new `usePolling` hook that stops while the tab is hidden and asks at once
+  when it is shown again. The "What exists today" paragraph is gone.
+- Fixed on the way: the feed showed "Chairman ()" for a task whose creator is named "chairman"
+  (a task stores the bare username).
+- Tests: pytest **398 passed, 1 skipped**; 7 new in `tests/test_m5_dashboard.py` (zeros on an
+  empty village, counts against the rows and plain SQL, pending approvals up and down, health
+  checks not counted, one statement, the feed's events/links/order/limit, no secrets, 401).
+  Vitest **147 passed** (6 new in `overview.test.tsx`: the ten cards and their links, empty
+  village, feed, feed error, polling + hidden tab, relative times; one M3 test that pinned "no
+  task numbers" was removed). `tsc --noEmit` and a scratch build pass.
+- Checked on the scratch server (port 8013) with curl and in headless Chrome at 1280 px and
+  390 px: the ten numbers equal the API's, 20 feed lines, no sideways scroll, no console error.
+  On that start the overdue **daily report fired once as a catch-up run** and its task succeeded
+  — the first time it was seen firing by the real scheduler (still not at 21:00 sharp).
+- **Not tested:** the 10-second refresh in a real browser (Vitest only, with a 30 ms interval).
+
 ## How to verify M4 on the live village
 Update first (new dependency APScheduler, migrations 0007–0009, new frontend build):
 `./village stop && ./village setup && ./village start`. Then log in.
@@ -890,7 +929,7 @@ frontend), log in, then:
 8. Overview again: the four counts match.
 
 ## In progress
-- Nothing. M4 Parts A, B and C are committed. The next milestone has not been started.
+- M5: Part A committed; Parts B (robot avatars) and C (village map) are next.
 
 ## Broken & known issues
 - `VILLAGE_SECRET_KEY` is required and generated, but nothing uses it yet (session tokens are

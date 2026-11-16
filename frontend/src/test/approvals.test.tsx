@@ -10,7 +10,7 @@ import Approvals from "../pages/Approvals";
 import AuditLog, { PAGE_SIZE } from "../pages/AuditLog";
 import Tasks from "../pages/Tasks";
 import { SessionProvider } from "../session";
-import { HEALTH, STATS, USER, VILLAGE, makeApproval, makeAuditEntry, makeAuditPage, makeTask, mockFetch } from "./helpers";
+import { HEALTH, STATS, USER, VILLAGE, makeApproval, makeAuditEntry, makeAuditPage, makeTask, mockFetch, ACTIVITY_ROUTE } from "./helpers";
 
 type Routes = Parameters<typeof mockFetch>[0];
 
@@ -185,6 +185,7 @@ describe("pending-approvals badge", () => {
     "GET /api/village": { body: VILLAGE },
     "GET /api/health": { body: HEALTH },
     "GET /api/stats/overview": { body: STATS },
+    [ACTIVITY_ROUTE]: { body: [] },
   };
 
   function renderApp(path = "/") {

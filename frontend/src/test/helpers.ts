@@ -77,7 +77,12 @@ export const HEALTH: Health = {
   setup_completed: true,
 };
 
-export const STATS: OverviewStats = { upazilas: 2, unions: 5, wards: 45, offices: 46, ward_offices: 45, agents: 1, active_agents: 1 };
+export const STATS: OverviewStats = {
+  upazilas: 2, unions: 5, wards: 45, offices: 46, ward_offices: 45, agents: 1, active_agents: 1,
+  running_tasks: 0, completed_tasks: 0, failed_tasks: 0, pending_approvals: 0,
+};
+/** The request the overview makes for its feed. */
+export const ACTIVITY_ROUTE = "GET /api/activity/recent?limit=20";
 
 export const STUDY_UNIONS = [
   "Academic Management",

@@ -20,6 +20,7 @@ import {
   VILLAGE,
   makeTree,
   mockFetch,
+  ACTIVITY_ROUTE,
 } from "./helpers";
 
 function renderApp(path: string) {
@@ -41,6 +42,7 @@ function orgRoutes(upazilas: TreeUpazila[]) {
     "GET /api/village": { body: VILLAGE },
     "GET /api/health": { body: HEALTH },
     "GET /api/stats/overview": { body: STATS },
+    [ACTIVITY_ROUTE]: { body: [] },
     "GET /api/org/tree": { body: makeTree(upazilas) },
     "GET /api/templates": { body: TEMPLATES },
   };

@@ -1,4 +1,4 @@
-import { useCallback, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useRef, useSyncExternalStore } from "react";
 
 /** Phones and narrow windows: the sidebar becomes a bottom navigation bar. Keep in step with
     the `mobile:` variant in index.css. */
@@ -19,4 +19,35 @@ export function useMediaQuery(query: string): boolean {
 
 export function useIsMobile(): boolean {
   return useMediaQuery(MOBILE_QUERY);
+}
+
+/**
+ * Call `callback` now and then every `intervalMs` — but only while the page is visible. A hidden
+ * tab (or a phone in the pocket) asks the server nothing; coming back asks at once.
+ */
+export function usePolling(callback: () => void | Promise<void>, intervalMs: number): void {
+  const latest = useRef(callback);
+  latest.current = callback;
+  useEffect(() => {
+    let timer: number | undefined;
+    function stop() {
+      if (timer !== undefined) window.clearInterval(timer);
+      timer = undefined;
+    }
+    function start() {
+      stop();
+      void latest.current();
+      timer = window.setInterval(() => void latest.current(), intervalMs);
+    }
+    function onVisibility() {
+      if (document.visibilityState === "visible") start();
+      else stop();
+    }
+    if (document.visibilityState === "visible") start();
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      stop();
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [intervalMs]);
 }

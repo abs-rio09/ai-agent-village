@@ -7,7 +7,7 @@ import App from "../App";
 import type { DeviceSession } from "../api";
 import { ALL_PAGES, isBuilt } from "../nav";
 import { SessionProvider } from "../session";
-import { HEALTH, STATS, USER, VILLAGE, mockFetch } from "./helpers";
+import { HEALTH, STATS, USER, VILLAGE, mockFetch, ACTIVITY_ROUTE } from "./helpers";
 
 function renderApp(path: string) {
   render(
@@ -38,6 +38,7 @@ function routes(sessions: DeviceSession[]): Parameters<typeof mockFetch>[0] {
     "GET /api/village": { body: VILLAGE },
     "GET /api/health": { body: HEALTH },
     "GET /api/stats/overview": { body: STATS },
+    [ACTIVITY_ROUTE]: { body: [] },
     "GET /api/auth/sessions": { body: sessions },
   };
 }

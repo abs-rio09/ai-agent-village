@@ -19,6 +19,7 @@ import {
   VILLAGE,
   makeTree,
   mockFetch,
+  ACTIVITY_ROUTE,
 } from "./helpers";
 
 function renderApp(path: string) {
@@ -39,6 +40,7 @@ function agentRoutes(agents: Agent[] = [CENTRAL_MANAGER, MINA]): Parameters<type
     "GET /api/village": { body: VILLAGE },
     "GET /api/health": { body: HEALTH },
     "GET /api/stats/overview": { body: STATS },
+    [ACTIVITY_ROUTE]: { body: [] },
     "GET /api/org/tree": { body: makeTree([STUDY_FULL]) },
     "GET /api/agent-templates": { body: AGENT_TEMPLATES },
     "GET /api/agent-options": { body: AGENT_OPTIONS },

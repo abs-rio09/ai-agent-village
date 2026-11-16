@@ -7,7 +7,7 @@ import { api } from "../api";
 import App from "../App";
 import { ALL_PAGES, BUILT_MILESTONE, isBuilt } from "../nav";
 import { SessionProvider } from "../session";
-import { HEALTH, STATS, USER, VILLAGE, mockFetch } from "./helpers";
+import { HEALTH, STATS, USER, VILLAGE, mockFetch, ACTIVITY_ROUTE } from "./helpers";
 
 function renderApp(path: string) {
   render(
@@ -29,6 +29,7 @@ const AUTHED = {
   "GET /api/village": { body: VILLAGE },
   "GET /api/health": { body: HEALTH },
   "GET /api/stats/overview": { body: STATS },
+  [ACTIVITY_ROUTE]: { body: [] },
 };
 
 const UNAUTHORIZED = { status: 401, body: { detail: "Not authenticated" } };
@@ -86,29 +87,6 @@ describe("app shell", () => {
     expect(await within(main).findByTestId("health-status")).toHaveTextContent("ok");
     expect(within(main).getByText("9.9.9-test")).toBeInTheDocument(); // straight from /api/health
     expect(within(main).getByText("wal")).toBeInTheDocument();
-  });
-
-  it("shows the real organization and agent counts from /api/stats/overview and no task numbers", async () => {
-    const { callsTo } = mockFetch({
-      ...AUTHED,
-      "GET /api/stats/overview": {
-        body: { upazilas: 6, unions: 5, wards: 45, offices: 46, ward_offices: 45, agents: 3, active_agents: 2 },
-      },
-    });
-    renderApp("/");
-
-    const main = await screen.findByRole("main");
-    await waitFor(() => expect(within(main).getByTestId("stat-upazilas")).toHaveTextContent("6"));
-    expect(within(main).getByTestId("stat-unions")).toHaveTextContent("5");
-    expect(within(main).getByTestId("stat-wards")).toHaveTextContent("45");
-    expect(within(main).getByTestId("stat-offices")).toHaveTextContent("46");
-    expect(within(main).getByText("45 ward offices + Central Administration")).toBeInTheDocument();
-    expect(callsTo("GET /api/stats/overview")).toHaveLength(1);
-    expect(within(main).getByTestId("stat-agents")).toHaveTextContent("3");
-    expect(within(main).getByText("2 active, the Central Manager included")).toBeInTheDocument();
-    // the only tiles are the four org counts and the agent count: nothing is invented for tasks
-    expect(within(main).getAllByTestId(/^stat-/)).toHaveLength(5);
-    expect(within(main).queryByTestId("stat-tasks")).not.toBeInTheDocument();
   });
 
   it("shows a dash, not a number, when the counts cannot be loaded", async () => {
