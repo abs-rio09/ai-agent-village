@@ -40,6 +40,8 @@ export interface PageDef {
   milestone: number;
   /** What the page will do once built (from the spec). */
   blurb: string;
+  /** True when a first part of the page was built before its milestone. */
+  builtEarly?: boolean;
 }
 
 export interface NavGroup {
@@ -105,7 +107,8 @@ export const NAV_GROUPS: NavGroup[] = [
     pages: [
       { id: "integrations", path: "/integrations", label: "Integration Settings", icon: Plug, milestone: 7, blurb: "Connector configuration and status (for example Messenger)." },
       { id: "ai-models", path: "/ai-models", label: "AI Model Settings", icon: Cpu, milestone: 4, blurb: "Choose and test the AI provider: Demo, Ollama or Anthropic." },
-      { id: "settings", path: "/settings", label: "Application Settings", icon: Settings, milestone: 8, blurb: "Village name, timezone, password and other application settings." },
+      // Built early by DEV-APP-01: only "Devices & sessions". The rest of the page is still M8.
+      { id: "settings", path: "/settings", label: "Application Settings", icon: Settings, milestone: 8, builtEarly: true, blurb: "Village name, timezone, password and other application settings." },
       { id: "backup", path: "/backup", label: "Backup & Restore", icon: DatabaseBackup, milestone: 8, blurb: "Create and restore backups of the village." },
       { id: "health", path: "/health", label: "System Health & Logs", icon: Activity, milestone: 8, blurb: "Server health, background jobs and logs." },
     ],
@@ -118,7 +121,7 @@ export const ALL_PAGES: PageDef[] = NAV_GROUPS.flatMap((group) => group.pages);
 export const BUILT_MILESTONE = 3;
 
 export function isBuilt(page: PageDef): boolean {
-  return page.milestone <= BUILT_MILESTONE;
+  return page.milestone <= BUILT_MILESTONE || page.builtEarly === true;
 }
 
 export function findPage(pathname: string): PageDef | undefined {

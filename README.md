@@ -48,7 +48,7 @@ known issues.
 - **First-run wizard** in the browser (6 steps) that creates the village and the admin account in
   one database transaction.
 - **Login** with argon2id password hashing, server-side sessions and a login lockout.
-- **Control-center UI**: dark dashboard with all 22 pages of the spec in the sidebar. The 15 pages
+- **Control-center UI**: dark dashboard with all 22 pages of the spec in the sidebar. The 14 pages
   that are not built yet say "Coming in M‹n›" and show no data.
 - **No fake numbers**: everything on screen comes from the backend.
 
@@ -184,21 +184,40 @@ something is missing, `./village doctor` says what and prints the exact command 
 
 Port already taken? `VILLAGE_PORT=8010 ./village start`.
 
+## Install it as an app (desktop and Android)
+
+The Village is an installable Progressive Web App: in Chrome on Ubuntu choose **⋮ → "Install AI
+Agent Village…"**. On an Android phone it is reached through [Tailscale](https://tailscale.com)
+(`tailscale serve`, HTTPS, your own devices only) and installed from Chrome the same way, while
+the server keeps listening on `127.0.0.1`.
+
+Step-by-step guide: **[docs/MOBILE.md](docs/MOBILE.md)**.
+
+> The PWA passed Chrome's installability check in a headless browser. Installing on a real
+> desktop Chrome, Android and the Tailscale route are **not tested by Claude Code**.
+
 ## Security & privacy
 
-- **Localhost only**: binds to `127.0.0.1`; a Host-header allowlist blocks DNS rebinding, and
-  state-changing requests must come from the same origin.
+- **Localhost only**: binds to `127.0.0.1` (`./village doctor` checks the listening socket); a
+  Host-header allowlist blocks DNS rebinding, and state-changing requests must come from the same
+  origin. `VILLAGE_ALLOWED_HOSTS` can name one more host, such as the PC's Tailscale name;
+  forwarded headers are believed only from a proxy on this PC and only for an allowed host.
 - **Passwords** are hashed with argon2id. Validation errors never echo the rejected input.
-- **Sessions**: `HttpOnly`, `SameSite=Strict` cookie; only the SHA-256 of the token is stored.
-- **Login lockout**: 5 failed attempts per username lock it for 5 minutes (kept in memory, so it
-  resets when the server restarts).
+- **Sessions**: `HttpOnly`, `SameSite=Strict` cookie (also `Secure` over HTTPS); only the SHA-256
+  of the token is stored. **Devices & sessions** lists every logged-in device and can revoke one
+  or all others; a revoked device gets 401 on its next request.
+- **Login lockout**: 5 failed attempts per username lock it for 5 minutes. The count is kept in
+  SQLite, so a restart does not reset it.
+- **The service worker never caches `/api`**: only the built app shell is cached; no village data
+  and no session is stored for offline use.
 - **Keys stay out of the database and logs**: an API key is written only to `data/.env`
   (mode 600) and is never returned by the API.
 - **No agent shell access, by design**: the tool catalogue an agent can be given has no shell,
   terminal or free filesystem tool. Tools are stored only for now; enforcement and approvals are M4.
 
 This is a single-user tool for your own machine. It is served over plain HTTP on localhost and is
-not meant to be exposed to a network.
+not meant to be exposed to a network. The only supported way to reach it from another device is
+`tailscale serve` inside your own tailnet — never `tailscale funnel`, port forwarding or `0.0.0.0`.
 
 ## Testing
 
@@ -208,8 +227,8 @@ cd frontend && npm test              # frontend (Vitest, runs once)
 cd frontend && npm run build         # type-check + production build
 ```
 
-Current results (M3): **pytest 259 passed, 1 skipped** (the skipped test needs `shellcheck`)
-and **Vitest 74 passed**. Tests never touch the real database or
+Current results (M3 + installable app): **pytest 324 passed, 1 skipped** (the skipped test needs
+`shellcheck`) and **Vitest 116 passed**. Tests never touch the real database or
 `data/.env`. The GitHub Actions workflow in [`ci.yml`](.github/workflows/ci.yml) runs both suites
 and the build on every push and pull request.
 
@@ -220,12 +239,13 @@ ai-agent-village/
 ├── village              # Bash CLI: setup, start, stop, restart, status, logs, doctor
 ├── backend/
 │   ├── app/             # FastAPI app: main, config, db, models, security, api/ routers
-│   ├── alembic/         # hand-written migrations (0001–0005)
+│   ├── alembic/         # hand-written migrations (0001–0006)
 │   └── tests/           # pytest; every test gets a temp DB and a temp .env
 ├── frontend/
 │   └── src/             # React app: pages/, components/, typed API client, tests
 ├── docs/
 │   ├── SPEC.md          # feature specification
+│   ├── MOBILE.md        # install as an app on desktop and Android (Tailscale)
 │   └── screenshots/
 ├── data/                # village.db and .env (git-ignored)
 ├── logs/  run/          # log file and PID file (git-ignored)

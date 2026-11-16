@@ -234,18 +234,25 @@ def test_successful_login_resets_the_failure_counter(client: TestClient) -> None
         assert response.status_code == 401
 
 
-def test_rate_limiter_window_expires() -> None:
-    now = [1000.0]
+def test_rate_limiter_window_expires(migrated: Path) -> None:
+    from datetime import datetime, timedelta
+
+    from app.db import get_session_factory
+
+    now = [datetime(2026, 1, 1, 12, 0, 0)]
     limiter = LoginRateLimiter(max_failures=5, window_seconds=300, clock=lambda: now[0])
-    for _ in range(5):
-        assert limiter.retry_after("chairman") == 0
-        limiter.record_failure("chairman")
-    assert limiter.retry_after("chairman") > 0
-    assert limiter.retry_after("someone-else") == 0
-    now[0] += 299
-    assert limiter.retry_after("chairman") > 0
-    now[0] += 2
-    assert limiter.retry_after("chairman") == 0
+    with get_session_factory()() as db:
+        for _ in range(5):
+            assert limiter.retry_after(db, "chairman") == 0
+            assert limiter.attempt(db, "chairman") == 0  # counted
+        assert limiter.retry_after(db, "chairman") > 0
+        assert limiter.attempt(db, "chairman") > 0  # refused, and not counted
+        assert limiter.retry_after(db, "someone-else") == 0
+        now[0] += timedelta(seconds=299)
+        assert limiter.retry_after(db, "chairman") > 0
+        now[0] += timedelta(seconds=2)
+        assert limiter.retry_after(db, "chairman") == 0
+        assert limiter.attempt(db, "chairman") == 0
 
 
 def test_logout_revokes_the_session(client: TestClient) -> None:

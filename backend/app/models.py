@@ -72,6 +72,21 @@ class UserSession(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utcnow)
     expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # "Chrome on Android" — derived from the User-Agent at login; the User-Agent itself is not kept.
+    device_label: Mapped[str] = mapped_column(String(80), nullable=False, default="")
+    last_seen_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
+class LoginFailure(Base):
+    """One counted login attempt. The lockout (5 per 5 minutes per username) is computed from
+    these rows, so it survives a restart. A successful login deletes the username's rows."""
+
+    __tablename__ = "login_failure"
+    __table_args__ = (Index("ix_login_failure_username", "username"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    username: Mapped[str] = mapped_column(String(64), nullable=False)
+    failed_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
 
 # ---------------------------------------------------------------- organization (M2)
 #

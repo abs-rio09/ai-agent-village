@@ -10,6 +10,7 @@ import AgentWizard from "./pages/AgentWizard";
 import ComingSoon from "./pages/ComingSoon";
 import Login from "./pages/Login";
 import Overview from "./pages/Overview";
+import SettingsPage from "./pages/Settings";
 import SetupWizard from "./pages/SetupWizard";
 import Tasks from "./pages/Tasks";
 import Unions from "./pages/Unions";
@@ -71,6 +72,7 @@ export default function App() {
         <Route path="/agents/new" element={<AgentWizard />} />
         <Route path="/agents/profile" element={<AgentProfile timezone={authed?.village.timezone} />} />
         <Route path="/tasks" element={<Tasks timezone={authed?.village.timezone} />} />
+        <Route path="/settings" element={<SettingsPage timezone={authed?.village.timezone} />} />
         {ALL_PAGES.filter((page) => !isBuilt(page)).map((page) => (
           <Route key={page.id} path={page.path} element={<ComingSoon page={page} />} />
         ))}

@@ -12,7 +12,7 @@ from typing import Annotated, Literal
 from urllib.parse import urlsplit
 from zoneinfo import available_timezones
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, StringConstraints, field_validator, model_validator
 from sqlalchemy import update
 from sqlalchemy.orm import Session
@@ -21,7 +21,7 @@ from app.api.village import AiMode, DefaultStructure, VillageResponse, village_r
 from app.config import get_settings, save_env_value
 from app.db import get_session, utcnow
 from app.models import AdminUser, AppMeta, Village, get_meta
-from app.security import create_session, hash_password, set_session_cookie
+from app.security import create_session, hash_password, is_secure_request, set_session_cookie
 
 router = APIRouter(prefix="/setup", tags=["setup"])
 
@@ -128,7 +128,9 @@ def setup_status(db: Session = Depends(get_session)) -> SetupStatus:
 
 
 @router.post("", response_model=SetupResponse, status_code=status.HTTP_201_CREATED)
-def run_setup(body: SetupRequest, response: Response, db: Session = Depends(get_session)) -> SetupResponse:
+def run_setup(
+    body: SetupRequest, request: Request, response: Response, db: Session = Depends(get_session)
+) -> SetupResponse:
     if get_meta(db, "setup_completed") == "true":
         raise _already_done()
 
@@ -170,7 +172,7 @@ def run_setup(body: SetupRequest, response: Response, db: Session = Depends(get_
         admin = AdminUser(username=body.username, password_hash=password_hash, created_at=now, last_login_at=now)
         db.add_all([village, admin])
         db.flush()
-        token = create_session(db, admin)
+        token = create_session(db, admin, request.headers.get("user-agent"))
         db.flush()
 
         if api_key is not None:
@@ -189,7 +191,7 @@ def run_setup(body: SetupRequest, response: Response, db: Session = Depends(get_
         db.rollback()
         raise
 
-    set_session_cookie(response, token)
+    set_session_cookie(response, token, secure=is_secure_request(request))
     return SetupResponse(
         setup_completed=True,
         username=admin.username,

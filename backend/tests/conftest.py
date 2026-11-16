@@ -59,12 +59,3 @@ def client(migrated: Path) -> Iterator[TestClient]:
 
     with TestClient(create_app(), base_url=BASE_URL) as test_client:
         yield test_client
-
-
-@pytest.fixture(autouse=True)
-def _reset_login_limiter() -> Iterator[None]:
-    from app.security import login_limiter
-
-    login_limiter.clear()
-    yield
-    login_limiter.clear()

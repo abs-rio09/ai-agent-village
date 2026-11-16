@@ -155,8 +155,8 @@ def test_migrations_0003_to_0005_up_and_down_keep_existing_data(env: Path) -> No
     agents = rows(agents_sql)
     assert agents == [(15, "Central Manager,Mina")]
 
-    command.upgrade(config, "head")
-    assert check()["current"] == check()["head"] == "0005" and version() == "5"
+    command.upgrade(config, "0005")
+    assert check()["current"] == "0005" and version() == "5"
     assert {"task", "agent_message"} <= tables()
     assert rows(m2_sql) == m2 and rows(agents_sql) == agents
     assert rows("SELECT COUNT(*) FROM task") == [(0,)] and rows("SELECT COUNT(*) FROM agent_message") == [(0,)]
@@ -170,7 +170,7 @@ def test_migrations_0003_to_0005_up_and_down_keep_existing_data(env: Path) -> No
     assert rows(m2_sql) == m2
 
     command.upgrade(config, "head")  # and all the way up again
-    assert check()["current"] == "0005" and rows(m2_sql) == m2
+    assert check()["current"] == check()["head"] and rows(m2_sql) == m2
     assert rows(agents_sql) == [(15, "Central Manager")]  # the downgrade to 0003 dropped the agent table
 
 

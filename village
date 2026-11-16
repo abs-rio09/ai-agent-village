@@ -11,13 +11,14 @@ PY="$VENV/bin/python"
 BACKEND="$ROOT/backend"
 FRONTEND="$ROOT/frontend"
 ENV_FILE="${VILLAGE_ENV_FILE:-$ROOT/data/.env}"
-PID_FILE="$ROOT/run/village.pid"
+PID_FILE="${VILLAGE_PID_FILE:-$ROOT/run/village.pid}"
 
 # Defaults; replaced by load_config with the validated application settings.
 HOST="127.0.0.1"
 PORT="8000"
 DB_FILE="$ROOT/data/village.db"
 LOG_DIR="$ROOT/logs"
+ALLOWED_HOSTS=""
 
 MIN_PYTHON="3.12"
 MIN_NODE=20
@@ -64,6 +65,7 @@ load_config() {
       port) PORT="$value" ;;
       db_file) DB_FILE="$value" ;;
       log_dir) LOG_DIR="$value" ;;
+      allowed_hosts) ALLOWED_HOSTS="$value" ;;
     esac
   done <<<"$out"
 }
@@ -144,6 +146,27 @@ format_uptime() {
   ((d > 0 || h > 0)) && out+="${h}h "
   ((d > 0 || h > 0 || m > 0)) && out+="${m}m "
   printf '%s%ss' "$out" "$s"
+}
+
+# Prints "ok", "missing" (no database yet) or "behind <current> <head>" (the code is newer than
+# the database: migrations have not been applied). Exit 1 when the database cannot be inspected.
+migration_state() {
+  local out key value db_exists="" current="" head=""
+  out="$(cd "$BACKEND" && "$PY" -m app.dbcheck 2>/dev/null)" || return 1
+  while IFS='=' read -r key value; do
+    case "$key" in
+      db_exists) db_exists="$value" ;;
+      current) current="$value" ;;
+      head) head="$value" ;;
+    esac
+  done <<<"$out"
+  if [[ "$db_exists" != "yes" ]]; then
+    printf 'missing'
+  elif [[ "$current" == "$head" ]]; then
+    printf 'ok'
+  else
+    printf 'behind %s %s' "$current" "$head"
+  fi
 }
 
 # ---------------------------------------------------------------- setup
@@ -231,7 +254,7 @@ cmd_setup() {
 # ---------------------------------------------------------------- start / stop / restart
 
 cmd_start() {
-  local pid log i health
+  local pid log i health current head
   load_config 2>/dev/null || true
   if pid="$(running_pid)"; then
     info "Village is already running (PID $pid) at $(base_url)"
@@ -240,6 +263,13 @@ cmd_start() {
   [[ -x "$PY" ]] || die "The Village is not set up yet. Run: ./village setup"
   load_config || die "The configuration is missing or invalid. Run: ./village setup"
   rm -f "$PID_FILE" # stale
+  # Never start new code on an old database: pages would fail in confusing ways.
+  local state
+  state="$(migration_state)" || state=""
+  if [[ "$state" == behind* ]]; then
+    read -r _ current head <<<"$state"
+    die "The database is at revision $current but this version of the Village needs $head. Run: ./village setup"
+  fi
   port_free || die "Port $PORT on $HOST is in use by another program. Free it, or set VILLAGE_PORT in $ENV_FILE."
 
   mkdir -p "$LOG_DIR" "$ROOT/run"
@@ -369,6 +399,7 @@ report() {
 
 cmd_doctor() {
   local pid major mode avail_kb dbinfo db_exists="" current="" head="" journal="" key value deps_ok=0 built=0
+  local config_ok=0 bind extra_hosts
 
   # python
   if python_ok; then
@@ -421,6 +452,7 @@ cmd_doctor() {
 
   # config + port
   if ((deps_ok)) && load_config 2>/dev/null; then
+    config_ok=1
     if pid="$(running_pid)"; then
       report PASS "port: $PORT is in use by the Village (PID $pid)"
     elif port_free; then
@@ -430,6 +462,32 @@ cmd_doctor() {
     fi
   else
     report FAIL "port: cannot check — configuration missing or invalid (run ./village setup)"
+  fi
+
+  # bind address: the Village must listen on this PC only, never on the network
+  if ((config_ok)) && bind="$(cd "$BACKEND" && "$PY" -m app.bindcheck "$PORT" "$HOST" 2>/dev/null)" && [[ "$bind" == *$'\t'* ]]; then
+    report "${bind%%$'\t'*}" "${bind#*$'\t'}"
+  else
+    report FAIL "bind: cannot check the listening address (run ./village setup)"
+  fi
+
+  # host names the Village answers to (VILLAGE_ALLOWED_HOSTS in data/.env, plus loopback)
+  if ((config_ok)); then
+    extra_hosts="$(tr ',' '\n' <<<"$ALLOWED_HOSTS" | grep -v -x -e '127.0.0.1' -e 'localhost' -e '\[::1\]' | paste -sd ',' - || true)"
+    if [[ -n "$extra_hosts" ]]; then
+      report PASS "hosts: VILLAGE_ALLOWED_HOSTS allows $ALLOWED_HOSTS (remote name: $extra_hosts)"
+    else
+      report PASS "hosts: VILLAGE_ALLOWED_HOSTS allows $ALLOWED_HOSTS (this PC only)"
+    fi
+  else
+    report FAIL "hosts: cannot read VILLAGE_ALLOWED_HOSTS — configuration missing or invalid"
+  fi
+
+  # tailscale: only looked for, never run
+  if command -v tailscale >/dev/null 2>&1; then
+    report INFO "tailscale: command found (not run by this check; phone access: docs/MOBILE.md)"
+  else
+    report INFO "tailscale: not installed (only needed for phone access; see docs/MOBILE.md)"
   fi
 
   # data dir
@@ -515,7 +573,7 @@ Usage: ./village <command>
   restart    Stop, then start
   status     Show running/stopped, PID, uptime and health (exit code 3 when stopped)
   logs       Show the last 100 log lines (logs -f to follow)
-  doctor     Run environment checks (PASS / WARN / FAIL); non-zero exit on any FAIL
+  doctor     Run environment checks (PASS / WARN / FAIL / INFO); non-zero exit on any FAIL
   backup     Coming in M8
   restore    Coming in M8
   help       Show this help

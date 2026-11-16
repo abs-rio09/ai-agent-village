@@ -176,6 +176,19 @@ export interface DeleteResult {
   offices: number;
 }
 
+// ---- devices & sessions (DEV-APP-01) ----
+
+export interface DeviceSession {
+  id: number;
+  /** "Chrome on Android"; "Unknown device" when it could not be recognised. */
+  device: string;
+  created_at: string;
+  last_seen_at: string | null;
+  expires_at: string;
+  /** The session this browser is using. */
+  current: boolean;
+}
+
 // ---- agents (M3) ----
 
 export type Lifecycle = "active" | "paused" | "disabled";
@@ -419,6 +432,11 @@ export const api = {
   logout: () => request<{ ok: boolean }>("POST", "/api/auth/logout"),
   me: () => request<User>("GET", "/api/auth/me"),
   village: () => request<Village>("GET", "/api/village"),
+
+  // devices & sessions
+  sessions: () => request<DeviceSession[]>("GET", "/api/auth/sessions"),
+  revokeSession: (id: number) => request<{ revoked: number }>("POST", `/api/auth/sessions/${id}/revoke`),
+  revokeOtherSessions: () => request<{ revoked: number }>("POST", "/api/auth/sessions/revoke-others"),
 
   // organization
   orgTree: () => request<OrgTree>("GET", "/api/org/tree"),

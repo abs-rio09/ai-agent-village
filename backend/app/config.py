@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import ipaddress
 import os
+import re
 import sys
 import tempfile
 from functools import lru_cache
@@ -23,6 +24,37 @@ def env_file_path() -> Path:
     """Location of the secrets file. VILLAGE_ENV_FILE overrides it (used by tests)."""
     override = os.environ.get("VILLAGE_ENV_FILE")
     return Path(override) if override else ROOT_DIR / "data" / ".env"
+
+
+# Always accepted as the Host of a request: the server itself only listens on loopback.
+LOOPBACK_HOSTNAMES = frozenset({"127.0.0.1", "localhost", "[::1]"})
+_HOSTNAME = re.compile(r"^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*$")
+
+
+def normalise_allowed_host(entry: str) -> str:
+    """One entry of VILLAGE_ALLOWED_HOSTS as a bare lower-case host name.
+
+    Forgiving about what people paste — "https://My-PC.tail1234.ts.net/", a port, a trailing dot
+    or the square brackets of a placeholder are removed — but strict about the result: a plain
+    host name or IP address. Wildcards are refused: every allowed host must be named.
+    """
+    host = entry.strip().lower()
+    host = re.sub(r"^[a-z][a-z0-9+.-]*://", "", host).split("/", 1)[0]
+    if host.startswith("[") and host.endswith("]") and ":" not in host:
+        host = host[1:-1]  # "[my-pc.ts.net]" copied from an example
+    if host.startswith("["):  # an IPv6 literal, with or without a port
+        literal = host.split("]", 1)[0] + "]"
+        try:
+            ipaddress.IPv6Address(literal[1:-1])
+        except ValueError:
+            raise ValueError(f"'{entry.strip()}' is not a valid host name") from None
+        return literal
+    host = re.sub(r":\d+$", "", host).rstrip(".")
+    if "*" in host:
+        raise ValueError(f"'{entry.strip()}': wildcards are not allowed, write the full host name")
+    if not host or len(host) > 253 or not _HOSTNAME.match(host):
+        raise ValueError(f"'{entry.strip()}' is not a valid host name")
+    return host
 
 
 def _is_loopback(host: str) -> bool:
@@ -44,6 +76,10 @@ class Settings(BaseSettings):
     frontend_dist: Path = Path("frontend/dist")
     secret_key: SecretStr
     anthropic_api_key: SecretStr | None = None
+    # Extra host names the Village may be opened under, comma-separated — for example the
+    # Tailscale name of this PC ("my-pc.tail1234.ts.net"). This does not change where the server
+    # listens (always loopback); it only says which Host headers are answered.
+    allowed_hosts: str = "127.0.0.1,localhost"
     # The in-process task runner. Tests switch it off and drive the queue themselves.
     task_worker: bool = True
 
@@ -53,6 +89,12 @@ class Settings(BaseSettings):
         if not _is_loopback(value):
             raise ValueError("host must be a loopback address (127.0.0.1); the Village is local-only")
         return value
+
+    @field_validator("allowed_hosts")
+    @classmethod
+    def _valid_allowed_hosts(cls, value: str) -> str:
+        hosts = [normalise_allowed_host(part) for part in value.split(",") if part.strip()]
+        return ",".join(dict.fromkeys(hosts))
 
     @field_validator("port")
     @classmethod
@@ -79,6 +121,12 @@ class Settings(BaseSettings):
     def demo_mode(self) -> bool:
         """Demo Mode is active whenever no Anthropic key is configured."""
         return self.anthropic_api_key is None
+
+    @property
+    def allowed_hostnames(self) -> frozenset[str]:
+        """Every Host name that is answered: the configured ones plus loopback, always."""
+        configured = {host for host in self.allowed_hosts.split(",") if host}
+        return frozenset(configured | LOOPBACK_HOSTNAMES)
 
     def _abs(self, path: Path) -> Path:
         return path if path.is_absolute() else ROOT_DIR / path
@@ -144,6 +192,7 @@ def _main() -> int:
     print(f"port={settings.port}")
     print(f"db_file={settings.db_file}")
     print(f"log_dir={settings.log_path}")
+    print(f"allowed_hosts={','.join(sorted(settings.allowed_hostnames))}")
     return 0
 
 

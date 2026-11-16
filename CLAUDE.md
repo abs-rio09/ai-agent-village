@@ -63,6 +63,8 @@ doctor    PASS/WARN/FAIL environment checks; non-zero exit on any FAIL
 backup | restore    placeholders until M8
 ```
 Overrides for experiments: `VILLAGE_DB_PATH`, `VILLAGE_PORT` (environment or `data/.env`).
+`VILLAGE_ALLOWED_HOSTS` (comma list, default `127.0.0.1,localhost`) names the extra Host names the
+app answers to, e.g. the PC's Tailscale name. It never changes the bind address. See `docs/MOBILE.md`.
 
 ## Rules for every session
 1. One task (one milestone part) per session. Do not start the next milestone unasked.

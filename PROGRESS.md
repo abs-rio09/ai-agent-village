@@ -14,9 +14,11 @@ migration or test was changed. The CI workflow has **not run on GitHub yet** (no
 
 **DEV-M2-FIX-01 — max 9 wards per Union**: done and committed (see "M2 fix: max 9 wards").
 
-**DEV-APP-01 — installable app (PWA) + Tailscale**: Part A (PWA and mobile layout) is built and
-committed; Part B (remote access, devices & sessions, MOBILE.md) is not built yet. Android and
-Tailscale are **not tested by Claude Code** — see the APP-01 sections.
+**DEV-APP-01 — installable app (PWA) + Tailscale**: Parts A and B are **built and committed, not
+yet accepted by the owner**. Checked in a headless Chrome and with real HTTP requests against a
+scratch server. **Installing in a real Chrome window, Android and Tailscale are not tested by
+Claude Code** — see the APP-01 sections and "How to verify APP-01 on desktop and Android".
+The live village still runs the older code and its database is at 0005 (head is now 0006).
 
 Milestone **M3 — Agents & Tasks**: Parts A, B and C are **built and committed, not yet accepted
 by the owner**. Checked on a scratch database and port 8013 only; the live village on port 8000
@@ -446,6 +448,111 @@ was not touched and still runs the older code (see "How to verify M3 on the live
 - **Not tested:** installing on Ubuntu Chrome by hand, anything on Android or iOS, the safe-area
   insets on a real notched phone, the login page and setup wizard at phone width in a browser.
 
+### APP-01 Part B — Tailscale-ready remote access, devices & sessions, MOBILE.md (2026-11-16)
+- `VILLAGE_ALLOWED_HOSTS` (comma list, default `127.0.0.1,localhost`). Loopback names are always
+  accepted, so a wrong value cannot lock the owner out of the PC. Entries are normalised (a pasted
+  `https://…/`, a port, a trailing dot or example brackets are removed); wildcards and invalid
+  names are a configuration error. The Host allowlist uses it; every other Host still gets 400.
+- Forwarded headers: `X-Forwarded-Host` and `X-Forwarded-Proto` are believed only when the TCP peer
+  is 127.0.0.1/::1 AND the forwarded host is on the allowlist (a forwarded host that is not → 400).
+  From any other peer they are ignored. The same-origin check compares `Origin` with that
+  effective host. `uvicorn.run(proxy_headers=False)` — uvicorn would otherwise replace the client
+  address with `X-Forwarded-For` and the peer check would be meaningless.
+  **Assumption, not verified:** whether `tailscale serve` keeps the browser's Host header or
+  sends `X-Forwarded-Host`. Both ways are handled and tested with imitated requests.
+- Session cookie: `Secure` when the request arrived over HTTPS (trusted forwarded proto), always
+  `HttpOnly` + `SameSite=Strict`; logout clears it with the same flags.
+- Migration `0006_login_lockout_devices.py` (schema_version 6): table `login_failure`, columns
+  `session.device_label` and `session.last_seen_at`. Existing sessions are kept (empty label,
+  shown as "Unknown device").
+- Login lockout now lives in SQLite: same limits (5 per 5 min per username → 429 + Retry-After).
+  One behaviour detail changed: an attempt is counted BEFORE the password is checked and given
+  back by a successful login, so parallel guesses cannot pass the limit together (tested: 12
+  parallel wrong logins → exactly 5 × 401, 7 × 429). Old rows are pruned on every attempt.
+- Sessions store a device label ("Chrome on Android", parsed from the User-Agent, which itself is
+  not stored) and last-seen (written at most once a minute per session).
+- API: `GET /api/auth/sessions`, `POST /api/auth/sessions/{id}/revoke`,
+  `POST /api/auth/sessions/revoke-others`. A revoked session gets 401 on its next request. There
+  is no audit log yet, so revokes and lockouts are written to the app log (logger `village.*`,
+  now wired into `logs/village.log`) — never a token or its hash.
+- UI: "Devices & sessions" on **Application Settings** (`/settings`, reachable from More on a
+  phone): device, logged in, last seen, "This device", Revoke, "Log out all other devices".
+  The rest of that page is still M8 and says so; the sidebar no longer shows "M8" for it
+  (`builtEarly` in `nav.ts`).
+- `./village doctor`: `bind:` (reads `/proc/net/tcp*` through `app/bindcheck.py`: PASS only when
+  the port listens on loopback addresses, FAIL on anything else), `hosts:` (the effective
+  `VILLAGE_ALLOWED_HOSTS`, naming a remote host if there is one) and `tailscale:` (INFO; only
+  `command -v`, tailscale is never run).
+- **Added beyond the brief:** `./village start` now refuses to start when the database is behind
+  the code ("…is at revision 0005 but this version … needs 0006. Run: ./village setup"). Without
+  it, `./village restart` after this update would start a server whose login fails. A
+  `VILLAGE_PID_FILE` override was added so this can be tested without the live PID file.
+- `docs/MOBILE.md` (desktop install, Tailscale on the PC, Android, limits, security) and a README
+  section linking it. The Tailscale commands (`curl -fsSL https://tailscale.com/install.sh | sh`,
+  `sudo tailscale up`, `tailscale serve --bg 8000`, `tailscale serve status`,
+  `tailscale serve reset`, enabling HTTPS on the admin console's DNS page) were read from
+  tailscale.com on 2026-11-16; **none of them was run** (Tailscale is not installed here).
+  The guide warns that enabling HTTPS publishes the PC's Tailscale name in a public certificate
+  log, and that the installed app does not start the server (the old
+  `~/.local/share/applications/agent-village.desktop` launcher does; it was not touched).
+- Tests: pytest **324 passed, 1 skipped** (59 new in `tests/test_app01_remote.py`; the in-memory
+  limiter test was rewritten for the database version; the autouse limiter-reset fixture was
+  removed because every test has its own database). Vitest **116 passed** (5 new in
+  `settings.test.tsx`). Type-check and scratch build ok.
+- Checked on a real server (scratch DB/.env/build, port 8013, stopped afterwards):
+  - the scratch database was at 0005 with three live sessions → migrated to 0006, sessions kept;
+  - default allowlist: `Host: my-pc.tail1234.ts.net` → 400, `X-Forwarded-Host: attacker.example`
+    → 400; with the name allowlisted → 200, another `.ts.net` name → 400;
+  - a login sent like the proxy would (Host = the name, `X-Forwarded-Proto: https`,
+    `X-Forwarded-For: 100.x`, a phone User-Agent) → cookie `HttpOnly; SameSite=strict; Secure`,
+    listed as "Chrome on Android"; a foreign `Origin` → 403; a plain local login → no `Secure`;
+  - revoking that session from another one → its next request 401; the log line has no token;
+  - five wrong passwords, server stopped and started → the right password still got 429 with
+    `Retry-After: 298`;
+  - `doctor` against that server: bind PASS (127.0.0.1 only), hosts with the remote name, tailscale
+    INFO "not installed", migration at head (0006);
+  - in headless Chrome at 390 px: Devices & sessions listed, Revoke → the other browser got 401,
+    "Log out all other devices" → only "This device" left; login page 390 px wide, 44 px controls.
+    A phone layout flaw of the device rows (name squeezed) was found there and fixed.
+- **Not tested:** Tailscale itself, the real HTTPS address, a real phone, the `Secure` cookie in a
+  real browser over HTTPS, "Private access · <host>" on the login page, the install hint on
+  screen (it did not fire in the fresh browser context; covered by Vitest), `shellcheck` on the
+  changed `village` script (not installed here; `bash -n` passes).
+
+## How to verify APP-01 on desktop and Android
+First update the live village (migration 0006 and a new frontend build):
+`./village stop && ./village setup && ./village start`. Details for every step: `docs/MOBILE.md`.
+
+Desktop
+1. `./village doctor` → `PASS  bind: port 8000 is listening on 127.0.0.1 only`, a `hosts:` line,
+   a `tailscale:` line, `migration: at head (0006)`.
+2. Chrome → http://127.0.0.1:8000 → log in → **⋮ → "Install AI Agent Village…"** (or the install
+   icon in the address bar). The app opens in its own window with the house-robot icon.
+3. Header shows **Online**. `./village stop` → within 30 s (or after switching back to the
+   window) it shows **Offline**; reloading shows "Village is unreachable". `./village start` →
+   "Try again" opens the app.
+4. Narrow the window below 768 px (or DevTools device mode, 390 px): bottom bar Overview / Tasks /
+   Agents / More, no sideways scrolling; Task Center: form, list, an opened task full-screen with
+   "Back to requests".
+5. Application Settings → Devices & sessions: this browser is "This device". Log in from a
+   second browser (or a private window), then **Revoke** it → that browser is back at the login
+   page on its next click.
+6. Type a wrong password 5 times → "Too many failed login attempts". `./village restart` → still
+   locked for the rest of the 5 minutes.
+
+Android (needs Tailscale — not tested by Claude Code)
+7. PC: install Tailscale, `sudo tailscale up`, enable HTTPS in the admin console,
+   `tailscale serve --bg 8000`, `tailscale serve status` → note the `https://….ts.net` address.
+8. Open that address on the phone BEFORE step 9 → "Invalid Host header" (expected).
+9. Add the name to `VILLAGE_ALLOWED_HOSTS` in `data/.env`, `./village restart`, `./village doctor`
+   → `hosts: … (remote name: ….ts.net)` and still `bind: … 127.0.0.1 only`.
+10. Phone: Tailscale app connected, Chrome → the https address → log in → **⋮ → Add to Home
+    screen / Install**. Open it from the home screen: bottom bar, **Online**.
+11. Send "help me prepare for my exam" from the phone → the task finishes with a "[Demo]" reply.
+12. On the PC: Devices & sessions lists "Chrome on Android" → Revoke → the phone is logged out.
+13. Turn the PC's Village off (`./village stop`) → the phone shows "Village is unreachable".
+14. `tailscale serve reset` → the https address stops working. Never use `tailscale funnel`.
+
 ## How to verify M3 on the live village
 `./village stop && ./village setup && ./village start` (setup migrates to 0005 and rebuilds the
 frontend), log in, then:
@@ -485,8 +592,8 @@ frontend), log in, then:
   only stored; **neither Ollama nor Anthropic has been contacted or tested**.
 - `GET /api/health` `demo_mode` follows the brief literally ("no Anthropic key set"), so a village
   in Ollama mode without a key still reports `demo_mode: true`.
-- Login lockout is in memory: it resets when the server restarts. Sessions are not cleaned up
-  on a schedule (expired rows are deleted at the next login).
+- Login lockout is stored in SQLite since APP-01 (it survives a restart). Sessions are not
+  cleaned up on a schedule (expired rows are deleted at the next login).
 - M2 has not been confirmed by the owner on the live village yet (see above).
 - **Node 20 cannot run the frontend tests.** Vitest 5.1 and jsdom 31 declare Node >= 22.12 /
   22.22 and their workers crash on Node 20.20 (`undici` fails to load). The build still works on
@@ -527,9 +634,10 @@ frontend), log in, then:
   harmless today.
 
 ## Last session
-- DEV-M3 Parts A, B and C plus one follow-up commit (browser checks, two UI fixes, README);
-  nothing pushed. Tests pass (pytest 259 + 1 skip, Vitest 74). The live village was not
-  restarted, migrated or rebuilt.
-- Waiting for: the owner's confirmation of M2 and M3, the milestone for Agent Chat and AI Model
-  Settings, the ward names for the Business/Career/Research/Project/Personal templates, the
-  Node 20 vs 22 decision, and the first CI run on GitHub.
+- DEV-APP-01 Parts A and B: two commits, nothing pushed. Tests pass (pytest 324 + 1 skip,
+  Vitest 116). The live village was not restarted, migrated or rebuilt; `frontend/dist` was not
+  rebuilt (all builds went to a scratch folder).
+- Waiting for: the owner's check of APP-01 on the desktop and on Android (Tailscale), the owner's
+  confirmation of M2 and M3, the milestone for Agent Chat and AI Model Settings, the ward names
+  for the Business/Career/Research/Project/Personal templates, the Node 20 vs 22 decision, and the
+  first CI run on GitHub.

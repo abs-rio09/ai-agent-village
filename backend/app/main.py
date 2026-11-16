@@ -19,8 +19,8 @@ from app.db import get_engine
 from app.seed import seed_if_migrated
 from app.task_runner import TaskWorker
 
-_ALLOWED_HOSTNAMES = {"127.0.0.1", "localhost", "[::1]"}
 _SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
+_LOOPBACK_PEERS = {"127.0.0.1", "::1"}
 
 
 _SECURITY_HEADERS = {
@@ -58,6 +58,17 @@ def _hostname(host_header: str) -> str:
     if host_header.endswith("]"):
         return host_header
     return host_header.rsplit(":", 1)[0] if ":" in host_header else host_header
+
+
+def _first(value: str) -> str:
+    """The first entry of a forwarded header ("a, b" when several proxies added to it)."""
+    return value.split(",", 1)[0].strip()
+
+
+def _is_local_proxy(request: Request) -> bool:
+    """True when the TCP connection itself comes from this PC. The server only listens on
+    127.0.0.1, so a remote device can only arrive through a local proxy (`tailscale serve`)."""
+    return request.client is not None and request.client.host in _LOOPBACK_PEERS
 
 
 @asynccontextmanager
@@ -98,14 +109,34 @@ def create_app() -> FastAPI:
         request: Request, call_next: Callable[[Request], Awaitable[Response]]
     ) -> Response:
         # Host allowlist: blocks DNS-rebinding (a foreign domain resolving to 127.0.0.1).
+        # Loopback names are always allowed; VILLAGE_ALLOWED_HOSTS adds, for example, the
+        # Tailscale name of this PC. Everything else is refused.
+        allowed = get_settings().allowed_hostnames
         host = request.headers.get("host", "")
-        if _hostname(host).lower() not in _ALLOWED_HOSTNAMES:
+        if _hostname(host).lower() not in allowed:
             return JSONResponse(status_code=400, content={"detail": "Invalid Host header"})
+
+        # What the browser really used. X-Forwarded-Host / -Proto are believed only when the
+        # connection comes from this PC (the local Tailscale proxy) AND the forwarded host is
+        # on the allowlist. From any other peer they are ignored.
+        public_host, scheme = host, request.url.scheme
+        if _is_local_proxy(request):
+            forwarded_host = request.headers.get("x-forwarded-host")
+            if forwarded_host is not None:
+                forwarded_host = _first(forwarded_host)
+                if _hostname(forwarded_host).lower() not in allowed:
+                    return JSONResponse(status_code=400, content={"detail": "Invalid Host header"})
+                public_host = forwarded_host
+            forwarded_proto = _first(request.headers.get("x-forwarded-proto", "")).lower()
+            if forwarded_proto in ("http", "https"):
+                scheme = forwarded_proto
+        request.state.secure = scheme == "https"  # → the session cookie gets the Secure flag
+
         # Same-origin check for state-changing API calls: other local web apps on different
         # ports count as "same-site", so SameSite=Strict alone does not stop them.
         if request.method not in _SAFE_METHODS and request.url.path.startswith("/api/"):
             origin = request.headers.get("origin")
-            if origin is not None and urlsplit(origin).netloc.lower() != host.lower():
+            if origin is not None and urlsplit(origin).netloc.lower() != public_host.lower():
                 return JSONResponse(status_code=403, content={"detail": "Cross-origin request rejected"})
         response = await call_next(request)
         for name, value in _SECURITY_HEADERS.items():
@@ -159,6 +190,8 @@ def run() -> None:
     log_config = copy.deepcopy(LOGGING_CONFIG)
     for formatter in log_config["formatters"].values():  # timestamps for logs/village.log
         formatter["fmt"] = "%(asctime)s " + formatter["fmt"]
+    # The application's own messages (tasks, revoked sessions, lockouts) go to the same log.
+    log_config["loggers"]["village"] = {"handlers": ["default"], "level": "INFO", "propagate": False}
     uvicorn.run(
         app,
         host=settings.host,
@@ -166,6 +199,9 @@ def run() -> None:
         workers=1,
         log_level="info",
         log_config=log_config,
+        # uvicorn must not rewrite the client address from X-Forwarded-For: the middleware
+        # needs the real TCP peer to decide whether forwarded headers may be trusted at all.
+        proxy_headers=False,
     )
 
 
